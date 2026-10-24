@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snowmcp"
+version = "1.0.0"
+description = "A consolidated ServiceNow MCP server: eleven tools, local storage, minimal calls."
+requires-python = ">=3.11"
+dependencies = ["mcp>=2.0"]
+
+[project.scripts]
+snowmcp = "snowmcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+markers = [
+    "integration: crosses a real layer boundary",
+    "qa: whole-stack acceptance and architecture checks",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["snowmcp"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    # A Protocol's method body is a declaration, never executed by design.
+    "^\\s*def .*\\.\\.\\.\\s*$",
+    "@(abc\\.)?abstractmethod",
+    # The module entry-point guard runs only under `python -m`.
+    "^\\s*if __name__ == .__main__.:$",
+]
