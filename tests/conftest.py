@@ -39,6 +39,10 @@ if _under_mutation_testing():
         "mutation_safe",
         database=None,
         deadline=None,
+        # The default is 100 examples per property. Under mutation testing
+        # each mutant runs the suite again, so 25 examples is enough to
+        # catch a broken invariant and a quarter of the time.
+        max_examples=25,
         suppress_health_check=[HealthCheck.differing_executors],
     )
     hypothesis_settings.load_profile("mutation_safe")

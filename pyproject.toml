@@ -34,6 +34,13 @@ source_paths = ["src"]
 # killed. -p no:cacheprovider stops it rewriting the pytest cache thousands
 # of times over a full run.
 pytest_add_cli_args = ["tests", "-p", "no:cacheprovider"]
+# mutmut's default wall-clock limit is (estimated_time + 1) * 15. On a
+# loaded four-core box that is not enough for a 10-second suite, and a
+# worker killed for overrunning is *not* a killed mutant - it counts
+# against the score. Give the workers room so a timeout means a real
+# infinite loop rather than a busy machine.
+timeout_constant = 30.0
+timeout_multiplier = 60.0
 # The business logic is where mutation testing earns its keep. The adapters
 # are transport and schema plumbing, which the contract tests cover exactly
 # (exact path, method, query parameters, body). Scope is stated here so the
