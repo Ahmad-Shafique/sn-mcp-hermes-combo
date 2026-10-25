@@ -19,6 +19,7 @@ import pytest
 from snowmcp.application.graph import GraphService
 from snowmcp.application.ports import Response
 from snowmcp.application.records import RecordService
+from snowmcp.application.services import OpsService
 from snowmcp.domain.errors import SafetyGuardError
 from snowmcp.domain.policy import WritePolicy
 from snowmcp.domain.records import Record
@@ -27,8 +28,9 @@ from tests.conftest import FakeGateway, RecordedCall, ok, records
 
 
 def policy(**kwargs: object) -> WritePolicy:
-    """A permissive policy."""
-    return WritePolicy(require_confirm=False, **kwargs)  # type: ignore[arg-type]
+    """A permissive policy, unless the test says otherwise."""
+    kwargs.setdefault("require_confirm", False)
+    return WritePolicy(**kwargs)  # type: ignore[arg-type]
 
 
 class MethodAwareGateway(FakeGateway):
@@ -305,6 +307,104 @@ class TestBatchContract:
         )
 
         assert gateway.last().json_body["rest_requests"]
+
+    def test_a_batch_is_refused_without_confirmation(self) -> None:
+        gateway = FakeGateway(default=ok({"result": []}))
+        service = RecordService(gateway, policy(require_confirm=True))
+
+        with pytest.raises(SafetyGuardError):
+            service.batch([{"method": "POST", "table": "incident"}])
+
+    def test_a_confirmed_batch_is_allowed(self) -> None:
+        gateway = FakeGateway(default=ok({"result": []}))
+        service = RecordService(gateway, policy(require_confirm=True))
+
+        service.batch([{"method": "POST", "table": "incident"}], confirmed=True)
+
+        assert gateway.last().method == "POST"
+
+    def test_an_operation_with_no_table_names_an_empty_table(self) -> None:
+        gateway = FakeGateway(default=ok({"result": []}))
+        service = RecordService(gateway, policy())
+
+        service.batch([{"method": "GET"}])
+
+        # The fallback is an empty name, not the string "None".
+        assert gateway.last().json_body["rest_requests"][0]["url"] == "/api/now/table/"
+
+    def test_an_operation_with_no_method_defaults_to_a_get(self) -> None:
+        gateway = FakeGateway(default=ok({"result": []}))
+        service = RecordService(gateway, policy())
+
+        service.batch([{"table": "incident"}])
+
+        assert gateway.last().json_body["rest_requests"][0]["method"] == "GET"
+
+    def test_an_operation_with_no_sys_id_has_a_bare_table_url(self) -> None:
+        gateway = FakeGateway(default=ok({"result": []}))
+        service = RecordService(gateway, policy())
+
+        service.batch([{"method": "GET", "table": "incident"}])
+
+        assert gateway.last().json_body["rest_requests"][0]["url"] == "/api/now/table/incident"
+
+
+class TestMissingKeyFallbacks:
+    """A key that is not in the row comes back as an empty string.
+
+    These are the fallbacks the mutation gate kept finding: change the
+    default from ``""`` to something else and a row missing that key
+    comes back different.
+    """
+
+    def test_a_relation_row_with_no_parent_or_child_is_empty(self) -> None:
+        gateway = FakeGateway(default=records({"type": ""}))
+        service = GraphService(gateway, policy())
+
+        relation = service.relations("p1")[0]
+
+        assert relation.parent_sys_id == ""
+        assert relation.child_sys_id == ""
+        assert relation.parent_table == ""
+        assert relation.child_table == ""
+
+    def test_a_relation_type_row_with_no_name_is_empty(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/cmdb_rel_ci": records(
+                    {"parent": "p1", "child": "c1", "type": "type1"}
+                ),
+                "/api/now/table/cmdb_rel_type": records({"value": "x"}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        assert service.relations("p1")[0].type_label == ""
+
+    def test_a_relation_type_row_that_is_a_mapping_is_read_directly(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/cmdb_rel_ci": records(
+                    {"parent": "p1", "child": "c1", "type": "type1"}
+                ),
+                "/api/now/table/cmdb_rel_type": ok({"result": {"name": "Contains"}}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        assert service.relations("p1")[0].type_label == "Contains"
+
+    def test_a_property_row_with_no_name_has_an_empty_name(self) -> None:
+        gateway = FakeGateway(default=records({"value": "x"}))
+        service = OpsService(gateway, policy())
+
+        assert service.properties()[0]["name"] == ""
+
+    def test_a_record_with_no_sys_id_has_an_empty_one(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {"number": "INC01"}}))
+        service = RecordService(gateway, policy())
+
+        assert service.get("incident", "s1").sys_id == ""
 
 
 class TestTraverseContract:

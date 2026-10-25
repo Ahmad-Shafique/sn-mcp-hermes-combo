@@ -110,7 +110,7 @@ def test_the_relations_query_can_go_up_only() -> None:
 
 
 def test_the_relations_limit_scales_with_depth() -> None:
-    assert endpoints.cmdb_relations_params("abc", depth=3)["sysparm_limit"] == "300"
+    assert endpoints.cmdb_relations_params("abc", limit=300)["sysparm_limit"] == "300"
 
 
 def test_where_used_params_find_both_reference_forms() -> None:

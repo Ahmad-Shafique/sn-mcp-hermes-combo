@@ -133,12 +133,16 @@ def stats_params(
     return params
 
 
-def cmdb_relations_params(sys_id: str, *, direction: str = "both", depth: int = 1) -> dict[str, str]:
-    """Build the CMDB relationship query for one CI."""
+def cmdb_relations_params(sys_id: str, *, direction: str = "both", limit: int = 100) -> dict[str, str]:
+    """Build the CMDB relationship query for one CI.
+
+    The relationship table has no server-side depth, so the walk is done
+    on this side and the limit is simply how many rows to ask for.
+    """
     params: dict[str, str] = {"sysparm_query": f"parent={sys_id}^ORchild={sys_id}"}
     if direction != "both":
         params["sysparm_query"] = f"parent={sys_id}" if direction == "down" else f"child={sys_id}"
-    params["sysparm_limit"] = str(max(1, depth) * 100)
+    params["sysparm_limit"] = str(limit)
     return params
 
 

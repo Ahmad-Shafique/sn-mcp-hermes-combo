@@ -34,8 +34,7 @@ class GraphService:
         response = self._gateway.request(
             "GET",
             endpoints.table_path("cmdb_rel_ci"),
-            params=endpoints.cmdb_relations_params(sys_id, direction=direction, depth=1)
-            | {"sysparm_limit": str(limit)},
+            params=endpoints.cmdb_relations_params(sys_id, direction=direction, limit=limit),
         )
         body = unwrap_records(response)
         result = body.get("result")
