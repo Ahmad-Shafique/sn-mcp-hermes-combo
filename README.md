@@ -217,14 +217,14 @@ make gate       # both
 ```
 
 The mutation gate reports a **score** and enforces a floor
-(`MIN_MUTATION_SCORE`, currently 87). It is a ratchet: raise it as survivors
+(`MIN_MUTATION_SCORE`, currently 88). It is a ratchet: raise it as survivors
 are closed, never lower it.
 
 ```bash
-.venv/bin/python scripts/mutation_gate.py --min-score 87 --json
+.venv/bin/python scripts/mutation_gate.py --min-score 88 --json
 ```
 
-**Current score: 87.63%** — 2303 of 2628 mutants killed, 323 survived, 2 timed
+**Current score: 88.89%** — 2337 of 2629 mutants killed, 290 survived, 2 timed
 out. The gate refuses to score a partial run, and counts a timeout against
 the score rather than crediting it: a worker killed for overrunning neither
 passed nor failed, so it proves nothing about the coverage.
@@ -252,12 +252,18 @@ default, a removed keyword argument - which is why the contract tests
 (`tests/integration/test_*_contracts.py`) matter as much as the unit tests.
 
 **The work queue** is the survivors, grouped by function. The current
-largest clusters are `RecordService.batch` (28), `GraphService.relations`
-(12) and `RecordService.update` (10); the rest are seven each. Closing
-them means one of three things each time: a contract test that pins the
+largest clusters are `GraphService.relations` (12) and
+`CodeService.where_used` (9); everything else is seven or fewer. Closing
+them means one of four things each time: a contract test that pins the
 exact request, a test that exercises the *default* value of a parameter
-rather than an explicit one, or a test of the defensive branch. Every
-round of fixes so far has raised the score and never lowered it.
+rather than an explicit one, a test of the defensive branch, or an
+assertion on the journal entry a write leaves behind. Every round of
+fixes so far has raised the score and never lowered it.
+
+Some survivors are **equivalent mutants** and cannot be killed by any
+test: a fallback value that is only reachable in a branch the code never
+takes. Those are recorded rather than chased — a test contorted to kill
+one would be asserting something the code does not promise.
 
 > `mutmut` caches its verdicts in `mutants/`. After changing a test, run
 > `rm -rf mutants` or the next run replays stale results. A full scoped run

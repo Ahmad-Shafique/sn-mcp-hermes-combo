@@ -2,7 +2,7 @@ PY := .venv/bin/python
 PKG := snowmcp
 
 # The mutation-score floor. Raise it as survivors are closed; never lower it.
-MIN_MUTATION_SCORE ?= 87
+MIN_MUTATION_SCORE ?= 88
 
 .PHONY: setup test unit integration qa coverage mutation gate clean install
 
