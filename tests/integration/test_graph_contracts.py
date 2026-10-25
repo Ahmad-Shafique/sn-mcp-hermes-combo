@@ -123,6 +123,68 @@ class TestGraphProbeFailures:
         assert service._is_field("short_description") is True
 
 
+class TestGraphKindContract:
+    """Which impact lens fits, decided by asking the instance."""
+
+    def test_a_field_probe_asks_sys_dictionary_by_element_reference_name(self) -> None:
+        gateway = FakeGateway(default=records({"element_id": "x"}))
+        service = GraphService(gateway, policy())
+
+        service._is_field("short_description")
+
+        call = gateway.last()
+        assert call.method == "GET"
+        assert call.path == "/api/now/table/sys_dictionary"
+        assert call.params == {
+            "sysparm_query": "element_reference_name=short_description",
+            "sysparm_limit": "1",
+        }
+
+    def test_a_table_probe_asks_sys_db_object_by_name(self) -> None:
+        gateway = FakeGateway(default=records({"name": "incident"}))
+        service = GraphService(gateway, policy())
+
+        service._is_table("incident")
+
+        call = gateway.last()
+        assert call.method == "GET"
+        assert call.path == "/api/now/table/sys_db_object"
+        assert call.params == {"sysparm_query": "name=incident", "sysparm_limit": "1"}
+
+    def test_a_name_that_is_a_table_is_reported_as_a_table(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/sys_db_object": records({"name": "incident"}),
+                "/api/now/table/sys_dictionary": records({"element_id": "x"}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        assert service._guess_kind("incident") == "table"
+
+    def test_a_name_that_is_only_a_field_is_reported_as_a_field(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/sys_db_object": ok({"result": []}),
+                "/api/now/table/sys_dictionary": records({"element_id": "x"}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        assert service._guess_kind("short_description") == "field"
+
+    def test_a_name_that_is_neither_is_reported_as_a_script(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/sys_db_object": ok({"result": []}),
+                "/api/now/table/sys_dictionary": ok({"result": []}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        assert service._guess_kind("something") == "script"
+
+
 class TestGraphTableConfig:
     """``table_config`` assembles two responses into one answer."""
 

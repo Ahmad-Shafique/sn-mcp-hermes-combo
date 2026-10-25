@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from snowmcp.application.graph import GraphService
+from snowmcp.application.ports import Response
 from snowmcp.application.services import (
     AdminService,
     CatalogService,
@@ -17,6 +18,7 @@ from snowmcp.application.services import (
     FileService,
     OpsService,
 )
+from snowmcp.domain.errors import ConfigurationError, ServiceNowAPIError, ValidationError
 from snowmcp.domain.policy import WritePolicy
 
 from tests.conftest import FakeGateway, ok, records
@@ -361,3 +363,163 @@ class TestGraphContract:
         call = gateway.last()
         assert call.path == "/api/now/table/sys_dictionary"
         assert "element_reference_name=short_description" in call.params["sysparm_query"]
+
+
+class TestHealthContract:
+    """Health reads two named properties out of the property list."""
+
+    def test_health_reports_the_release_version(self) -> None:
+        gateway = FakeGateway(default=records({"name": "glide.sys.version", "value": "Tokyo"}))
+        service = OpsService(gateway, policy())
+
+        assert service.health()["version"] == "Tokyo"
+
+    def test_health_reports_the_instance_hostname(self) -> None:
+        gateway = FakeGateway(
+            default=records({"name": "glide.instance.hostname", "value": "acme.service-now.com"})
+        )
+        service = OpsService(gateway, policy())
+
+        assert service.health()["instance"] == "acme.service-now.com"
+
+    def test_health_leaves_an_absent_version_as_none(self) -> None:
+        gateway = FakeGateway(default=records({"name": "unrelated", "value": "x"}))
+        service = OpsService(gateway, policy())
+
+        assert service.health()["version"] is None
+
+    def test_health_ignores_a_property_row_with_no_name(self) -> None:
+        gateway = FakeGateway(default=records({"value": "x"}))
+        service = OpsService(gateway, policy())
+
+        assert service.health()["properties"] == {}
+
+    def test_health_ignores_a_property_row_that_is_not_a_dict(self) -> None:
+        gateway = FakeGateway(default=ok({"result": ["nope", {"name": "a", "value": "b"}]}))
+        service = OpsService(gateway, policy())
+
+        assert service.health()["properties"] == {"a": "b"}
+
+    def test_health_ignores_a_result_that_is_not_a_list(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {"name": "glide.sys.version"}}))
+        service = OpsService(gateway, policy())
+
+        assert service.health()["properties"] == {}
+
+    def test_health_surfaces_a_failed_response_rather_than_reporting_no_properties(
+        self,
+    ) -> None:
+        gateway = FakeGateway(default=Response(status=500, body={"result": [{"name": "x"}]}))
+        service = OpsService(gateway, policy())
+
+        # A health check against a broken instance must report the failure.
+        # Reporting "no properties" would be indistinguishable from a
+        # healthy instance that happens to expose no properties.
+        with pytest.raises(ServiceNowAPIError):
+            service.health()
+
+
+class TestPropertyMaskingContract:
+    """Secret property values never leave the server."""
+
+    def test_an_authentication_property_is_masked(self) -> None:
+        gateway = FakeGateway(default=records({"name": "glide.authenticate.key", "value": "s3cret"}))
+        service = OpsService(gateway, policy())
+
+        assert service.properties()[0]["value"] == "***"
+
+    def test_a_property_with_password_in_its_name_is_masked(self) -> None:
+        gateway = FakeGateway(default=records({"name": "my.password.thing", "value": "s3cret"}))
+        service = OpsService(gateway, policy())
+
+        assert service.properties()[0]["value"] == "***"
+
+    def test_an_ordinary_property_is_not_masked(self) -> None:
+        gateway = FakeGateway(default=records({"name": "glide.sys.version", "value": "Tokyo"}))
+        service = OpsService(gateway, policy())
+
+        assert service.properties()[0]["value"] == "Tokyo"
+
+    def test_a_property_row_that_is_not_a_dict_is_dropped(self) -> None:
+        gateway = FakeGateway(default=ok({"result": ["nope", {"name": "a", "value": "b"}]}))
+        service = OpsService(gateway, policy())
+
+        assert service.properties() == [{"name": "a", "value": "b"}]
+
+
+class TestScriptedRestContract:
+    """Running server-side script needs a Scripted REST API on the instance."""
+
+    def test_without_a_scripted_rest_url_the_call_is_refused(self) -> None:
+        service = AdminService(FakeGateway(), policy())
+
+        with pytest.raises(ConfigurationError):
+            service.script("var x = 1", confirmed=True)
+
+    def test_the_script_is_posted_to_the_scripted_rest_url(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {"output": "1"}}))
+        service = AdminService(gateway, policy(), scripted_rest_url="/api/x/ns/acme/run")
+
+        service.script("var x = 1", confirmed=True)
+
+        call = gateway.last()
+        assert call.method == "POST"
+        assert call.path == "/api/x/ns/acme/run"
+        assert call.json_body == {"script": "var x = 1", "run_as_user": "system"}
+
+    def test_the_script_response_is_returned_whole(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {"output": "1"}}))
+        service = AdminService(gateway, policy(), scripted_rest_url="/api/x/ns/acme/run")
+
+        assert service.script("var x = 1", confirmed=True) == {"result": {"output": "1"}}
+
+
+class TestCodeQueryContract:
+    """The exact queries the code service builds."""
+
+    def test_a_search_for_one_artefact_kind_appends_the_type(self) -> None:
+        gateway = FakeGateway(default=records({"name": "MyScript"}))
+        service = CodeService(gateway, policy())
+
+        service.search("Needle", artefact="business_rule")
+
+        assert gateway.last().params["sysparm_query"] == (
+            "scriptLIKENeedle^ORnameLIKENeedle^ORdescriptionLIKENeedle^type=business rule"
+        )
+
+    def test_where_used_asks_the_script_table_for_every_mention(self) -> None:
+        gateway = FakeGateway(default=records({"element_id": "x"}))
+        service = CodeService(gateway, policy())
+
+        service.where_used("short_description")
+
+        assert gateway.calls[0].params["sysparm_query"] == (
+            "scriptLIKEshort_description^ORnameLIKEshort_description"
+            "^ORdescriptionLIKEshort_description"
+        )
+
+    def test_where_used_asks_the_dictionary_for_both_reference_forms(self) -> None:
+        gateway = FakeGateway(default=records({"element_id": "x"}))
+        service = CodeService(gateway, policy())
+
+        service.where_used("short_description")
+
+        assert gateway.calls[1].params["sysparm_query"] == (
+            "element_reference_name=short_description^ORname=short_description"
+        )
+
+
+class TestAttachmentValidationContract:
+    """An attachment is refused before it reaches the instance."""
+
+    def test_an_upload_without_a_name_is_refused(self) -> None:
+        service = FileService(FakeGateway(), policy())
+
+        with pytest.raises(ValidationError):
+            service.upload("incident", "abc", "", "Zm9v", confirmed=True)
+
+    def test_an_upload_whose_content_is_not_base64_is_refused(self) -> None:
+        service = FileService(FakeGateway(), policy())
+
+        with pytest.raises(ValidationError):
+            service.upload("incident", "abc", "a.txt", "not base64!!", confirmed=True)
