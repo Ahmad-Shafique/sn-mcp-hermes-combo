@@ -188,12 +188,21 @@ class TestCodeService:
         gateway = FakeGateway(default=records({"element_id": "x"}))
         service = CodeService(gateway, policy())
 
-        result = service.where_used("short_description", scope="global")
+        result = service.where_used("short_description")
 
         assert result["name"] == "short_description"
-        assert result["scope"] == "global"
+        assert result["scope"] == ""
         assert "scripts" in result
         assert "structural" in result
+
+    def test_where_used_refuses_a_scope_it_does_not_know(self) -> None:
+        gateway = FakeGateway(default=records({"element_id": "x"}))
+        service = CodeService(gateway, policy())
+
+        # The scope used to be accepted and ignored, which meant an agent
+        # asking for a scoped search silently got an unscoped one.
+        with pytest.raises(ValidationError):
+            service.where_used("short_description", scope="global")
 
 
 class TestOpsService:

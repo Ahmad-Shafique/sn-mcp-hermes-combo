@@ -213,28 +213,47 @@ class CodeService:
         return result if isinstance(result, dict) else {"result": result}
 
     def where_used(self, name: str, *, scope: str = "", limit: int = 100) -> dict[str, Any]:
-        """Find where a name is referenced, in code and in the schema."""
-        self._policy.check_read("sys_script")
-        response = self._gateway.request(
-            "GET",
-            endpoints.table_path("sys_script"),
-            params=endpoints.script_search_params(name, limit=limit),
-        )
-        body = unwrap_records(response)
-        result = body.get("result")
-        scripts = [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
-        structural_response = self._gateway.request(
-            "GET",
-            endpoints.table_path("sys_dictionary"),
-            params=endpoints.where_used_params(name),
-        )
-        structural_body = unwrap_records(structural_response)
-        structural_result = structural_body.get("result")
-        structural = (
-            [item for item in structural_result if isinstance(item, dict)]
-            if isinstance(structural_result, list)
-            else []
-        )
+        """Find where a name is referenced, in code and in the schema.
+
+        ``scope`` narrows the search: ``"code"`` looks only at the
+        instance's scripts, ``"schema"`` only at the dictionary, and the
+        default ``""`` looks at both. Narrowing it also means fewer
+        requests.
+        """
+        if scope not in ("", "code", "schema"):
+            raise ValidationError(
+                f"scope must be 'code', 'schema' or empty, not {scope!r}"
+            )
+        scripts: list[dict[str, Any]] = []
+        structural: list[dict[str, Any]] = []
+        if scope in ("", "code"):
+            self._policy.check_read("sys_script")
+            response = self._gateway.request(
+                "GET",
+                endpoints.table_path("sys_script"),
+                params=endpoints.script_search_params(name, limit=limit),
+            )
+            body = unwrap_records(response)
+            result = body.get("result")
+            scripts = (
+                [item for item in result if isinstance(item, dict)]
+                if isinstance(result, list)
+                else []
+            )
+        if scope in ("", "schema"):
+            self._policy.check_read("sys_dictionary")
+            structural_response = self._gateway.request(
+                "GET",
+                endpoints.table_path("sys_dictionary"),
+                params=endpoints.where_used_params(name),
+            )
+            structural_body = unwrap_records(structural_response)
+            structural_result = structural_body.get("result")
+            structural = (
+                [item for item in structural_result if isinstance(item, dict)]
+                if isinstance(structural_result, list)
+                else []
+            )
         return {"name": name, "scope": scope, "scripts": scripts, "structural": structural}
 
 

@@ -179,6 +179,19 @@ the method, every query parameter, the body - not only what comes back.
 Result-level tests pass while the request quietly changes shape. Contract
 tests catch that, and they are what closes most mutation survivors.
 
+Three contract rules that the mutation gate taught us the hard way:
+
+- **Test the default, not just the explicit value.** A contract test that
+  always passes `limit=30` cannot see a mutation of `limit: int = 200`.
+  Every service is also called with only its required arguments, and the
+  resulting request is pinned.
+- **Test the defensive branches.** A guard for "the result is not a list"
+  changes nothing about what the happy path returns, so the happy-path
+  test cannot see it. Those branches are tested directly.
+- **Assert the whole message, not a substring.** `assert "not part of the
+  public contract" in reason` survives a mutation of any other word in
+  that message.
+
 ## Architecture
 
 Clean Architecture, dependencies pointing strictly inward:

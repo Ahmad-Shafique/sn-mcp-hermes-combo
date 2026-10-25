@@ -322,7 +322,8 @@ def build_server(services: Services) -> MCPServer:
         description=(
             "Find the instance's own automation. action=search (scripts mentioning a "
             "string), action=list (artefacts of a kind), action=read (one artefact), "
-            "action=where_used (every reference to a name, in code and in the schema)."
+            "action=where_used (every reference to a name; scope='code' searches only "
+            "the scripts, scope='schema' only the dictionary, empty searches both)."
         ),
     )
     @_safe
