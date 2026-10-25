@@ -229,6 +229,15 @@ out. The gate refuses to score a partial run, and counts a timeout against
 the score rather than crediting it: a worker killed for overrunning neither
 passed nor failed, so it proves nothing about the coverage.
 
+The gate also refuses results that belong to a different version of the
+source. mutmut records a hash of every function it mutated; the gate
+recomputes those hashes from the current source and fails if any of them
+differ. This matters because two mutation runs that share the `mutants/`
+directory — the second starting with `rm -rf mutants` while the first is
+still going — produce verdicts about mutations of code that is no longer
+there, and the mutant *names* are identical in both, so only the hashes
+reveal it.
+
 **Scope:** the mutation gate covers `src/snowmcp/domain/` and
 `src/snowmcp/application/` — the business rules and use cases. The adapters
 (transport, SQLite store, MCP surface) are excluded by an explicit
