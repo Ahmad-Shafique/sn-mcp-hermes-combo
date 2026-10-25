@@ -217,12 +217,17 @@ make gate       # both
 ```
 
 The mutation gate reports a **score** and enforces a floor
-(`MIN_MUTATION_SCORE`, default 80). It is a ratchet: raise it as survivors
+(`MIN_MUTATION_SCORE`, currently 87). It is a ratchet: raise it as survivors
 are closed, never lower it.
 
 ```bash
-.venv/bin/python scripts/mutation_gate.py --min-score 80 --json
+.venv/bin/python scripts/mutation_gate.py --min-score 87 --json
 ```
+
+**Current score: 87.63%** — 2303 of 2628 mutants killed, 323 survived, 2 timed
+out. The gate refuses to score a partial run, and counts a timeout against
+the score rather than crediting it: a worker killed for overrunning neither
+passed nor failed, so it proves nothing about the coverage.
 
 **Scope:** the mutation gate covers `src/snowmcp/domain/` and
 `src/snowmcp/application/` — the business rules and use cases. The adapters
@@ -237,9 +242,19 @@ have been caught. Most surviving mutants are *argument* mutants - a changed
 default, a removed keyword argument - which is why the contract tests
 (`tests/integration/test_*_contracts.py`) matter as much as the unit tests.
 
+**The work queue** is the survivors, grouped by function. The current
+largest clusters are `RecordService.batch` (28), `GraphService.relations`
+(12) and `RecordService.update` (10); the rest are seven each. Closing
+them means one of three things each time: a contract test that pins the
+exact request, a test that exercises the *default* value of a parameter
+rather than an explicit one, or a test of the defensive branch. Every
+round of fixes so far has raised the score and never lowered it.
+
 > `mutmut` caches its verdicts in `mutants/`. After changing a test, run
 > `rm -rf mutants` or the next run replays stale results. A full scoped run
-> takes about an hour on four cores, so run it in the background.
+> takes about an hour on four cores, so run it in the background - and do
+> not run other suites while it does, or the workers will be killed for
+> overrunning and the score will be understated.
 
 ## Licence
 
