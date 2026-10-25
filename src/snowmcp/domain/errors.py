@@ -33,6 +33,16 @@ class SafetyGuardError(SnowMCPError):
     """A safety control (read-only mode, allow/deny list) refused the call."""
 
 
+class JournalWriteError(SnowMCPError):
+    """The write reached the instance but could not be journalled.
+
+    The record *was* created or changed. What failed is the local
+    journal entry that would have made it revertible. Saying so plainly
+    matters: a caller that reads this as "the write failed" will retry,
+    and a retry creates a duplicate.
+    """
+
+
 class ServiceNowAPIError(SnowMCPError):
     """The ServiceNow REST API answered with an error.
 

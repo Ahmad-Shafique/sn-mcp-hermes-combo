@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 from snowmcp.application import endpoints
 from snowmcp.application.ports import InstanceGateway, WriteJournal
 from snowmcp.application.responses import unwrap, unwrap_list, unwrap_records
-from snowmcp.domain.errors import ValidationError
+from snowmcp.domain.errors import JournalWriteError, ValidationError
 from snowmcp.domain.policy import WritePolicy
 from snowmcp.domain.records import Query, Record, RecordPage, TableRef
 from snowmcp.domain.storage import JournalEntry
@@ -166,7 +166,16 @@ class RecordService:
             before=before,
             after=after,
         )
-        self._journal.journal_append(entry)
+        try:
+            self._journal.journal_append(entry)
+        except Exception as exc:  # noqa: BLE001 - re-raised as a domain error
+            # The write has already reached the instance. Failing with a
+            # plain error would read as "the write did not happen", and a
+            # caller that retries would create a duplicate.
+            raise JournalWriteError(
+                f"the {operation} on {table!r} reached the instance but could not be "
+                f"journalled, so it cannot be reverted: {exc}"
+            ) from exc
 
 
 class AggregateService:

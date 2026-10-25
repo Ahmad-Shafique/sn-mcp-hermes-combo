@@ -235,6 +235,40 @@ class TestPolicyWrites:
         assert policy.reads == ["incident"]
         assert policy.writes == []
 
+    def test_batching_treats_put_and_delete_as_writes(self) -> None:
+        policy = RecordingPolicy()
+        RecordService(FakeGateway(default=ok({"result": []})), policy).batch(
+            [
+                {"method": "PUT", "table": "incident"},
+                {"method": "DELETE", "table": "incident"},
+            ]
+        )
+
+        # The verb is upper-cased before the comparison, so a lower-case
+        # "delete" in the list would silently turn a delete into a read.
+        assert policy.writes == ["incident", "incident"]
+        assert policy.reads == []
+
+    def test_batching_an_operation_with_no_table_checks_an_empty_table(self) -> None:
+        policy = RecordingPolicy()
+        RecordService(FakeGateway(default=ok({"result": []})), policy).batch(
+            [{"method": "GET"}]
+        )
+
+        # The fallback is an empty name, not the string "None".
+        assert policy.reads == [""]
+
+    def test_batching_an_operation_with_no_method_checks_a_read(self) -> None:
+        policy = RecordingPolicy()
+        RecordService(FakeGateway(default=ok({"result": []})), policy).batch(
+            [{"table": "incident"}]
+        )
+
+        # An absent method falls back to an empty verb, which is not a
+        # write verb, so it is a read.
+        assert policy.reads == ["incident"]
+        assert policy.writes == []
+
     def test_ordering_a_catalog_item_checks_the_request_item_table(self) -> None:
         policy = RecordingPolicy()
         CatalogService(FakeGateway(default=ok({"result": {}})), policy).order(
