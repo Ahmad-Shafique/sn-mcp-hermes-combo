@@ -70,10 +70,10 @@ def build_server(services: Services) -> MCPServer:
         title="ServiceNow Consolidated",
         version="1.0.0",
         instructions=(
-            "One MCP server for a ServiceNow instance. Eleven tools, each with an "
+            "One MCP server for a ServiceNow instance. Thirteen tools, each with an "
             "'action' parameter. Read with sn_read, change with sn_write, explore the "
-            "CMDB Service Graph with sn_graph, and store findings locally with sn_local. "
-            "Writes need confirm=true."
+            "CMDB Service Graph with sn_graph, remember findings with sn_knowledge and "
+            "sn_state, and revert a write with sn_journal. Writes need confirm=true."
         ),
     )
 
@@ -378,23 +378,64 @@ def build_server(services: Services) -> MCPServer:
         return services.ops.stats()
 
     @server.tool(
-        name="sn_local",
-        annotations=READ_WRITE,
+        name="sn_knowledge",
+        annotations=READ_ONLY,
         description=(
-            "The server's own memory, all local. action=note_write, action=note_read, "
-            "action=note_search, action=note_list, action=note_delete, action=cache_put, "
-            "action=cache_get, action=cache_list, action=saved_save, action=saved_run, "
-            "action=saved_list, action=history, action=journal, action=undo."
+            "Read what the server already knows. action=note_read, action=note_search, "
+            "action=note_list, action=saved_list, action=saved_run (run a saved query), "
+            "action=history (what was already called), action=cache_get, "
+            "action=cache_list."
         ),
     )
     @_safe
-    def sn_local(
+    def sn_knowledge(
         action: Literal[
-            "note_write", "note_read", "note_search", "note_list", "note_delete",
-            "cache_put", "cache_get", "cache_list",
-            "saved_save", "saved_run", "saved_list",
-            "history", "journal", "undo",
+            "note_read", "note_search", "note_list",
+            "saved_list", "saved_run",
+            "history", "cache_get", "cache_list",
         ] = "note_list",
+        key: str = "",
+        body: str = "",
+        table: str = "",
+        sys_id: str = "",
+        name: str = "",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Read the local knowledge base, cache and saved queries."""
+        if action == "note_read":
+            return services.knowledge.read(key).to_dict()
+        if action == "note_search":
+            notes = services.knowledge.search(body or key)
+            return {"count": len(notes), "notes": [note.to_dict() for note in notes]}
+        if action == "note_list":
+            notes = services.knowledge.list()
+            return {"count": len(notes), "notes": [note.to_dict() for note in notes]}
+        if action == "saved_list":
+            queries = services.saved_queries.list()
+            return {"count": len(queries), "queries": [query.to_dict() for query in queries]}
+        if action == "saved_run":
+            return services.saved_queries.run(name)
+        if action == "history":
+            calls = services.history.list(limit)
+            return {"count": len(calls), "calls": [call.to_dict() for call in calls]}
+        if action == "cache_get":
+            record = services.cache.get(table, sys_id)
+            return record.to_dict() if record else {"found": False}
+        records = services.cache.list(table)
+        return {"count": len(records), "records": [record.to_dict() for record in records]}
+
+    @server.tool(
+        name="sn_state",
+        annotations=READ_WRITE,
+        description=(
+            "Write to the server's own local memory. action=note_write, "
+            "action=note_delete, action=saved_save, action=cache_put. Nothing here "
+            "touches the ServiceNow instance."
+        ),
+    )
+    @_safe
+    def sn_state(
+        action: Literal["note_write", "note_delete", "saved_save", "cache_put"] = "note_write",
         key: str = "",
         title: str = "",
         body: str = "",
@@ -406,45 +447,38 @@ def build_server(services: Services) -> MCPServer:
         encoded_query: str = "",
         fields: list[str] | None = None,
         limit: int = 100,
-        entry_id: str = "",
-        confirm: bool = False,
     ) -> dict[str, Any]:
-        """Use the server's local knowledge base, cache and journal."""
+        """Store notes, saved queries and cached records locally."""
         if action == "note_write":
             note = services.knowledge.write(key, title, body, tags)
             return note.to_dict()
-        if action == "note_read":
-            return services.knowledge.read(key).to_dict()
-        if action == "note_search":
-            notes = services.knowledge.search(body or key)
-            return {"count": len(notes), "notes": [note.to_dict() for note in notes]}
-        if action == "note_list":
-            notes = services.knowledge.list()
-            return {"count": len(notes), "notes": [note.to_dict() for note in notes]}
         if action == "note_delete":
             return {"deleted": services.knowledge.delete(key), "key": key}
-        if action == "cache_put":
-            record = services.cache.put(table, sys_id, payload or {})
-            return record.to_dict()
-        if action == "cache_get":
-            record = services.cache.get(table, sys_id)
-            return record.to_dict() if record else {"found": False}
-        if action == "cache_list":
-            records = services.cache.list(table)
-            return {"count": len(records), "records": [record.to_dict() for record in records]}
         if action == "saved_save":
             query = services.saved_queries.save(
                 name, table, encoded_query=encoded_query, fields=fields or [], limit=limit
             )
             return query.to_dict()
-        if action == "saved_run":
-            return services.saved_queries.run(name)
-        if action == "saved_list":
-            queries = services.saved_queries.list()
-            return {"count": len(queries), "queries": [query.to_dict() for query in queries]}
-        if action == "history":
-            calls = services.history.list(limit)
-            return {"count": len(calls), "calls": [call.to_dict() for call in calls]}
+        record = services.cache.put(table, sys_id, payload or {})
+        return record.to_dict()
+
+    @server.tool(
+        name="sn_journal",
+        annotations=DESTRUCTIVE,
+        description=(
+            "The write journal. action=journal (list applied writes and how to revert "
+            "them), action=undo (revert one - needs confirm=true, and it changes the "
+            "instance)."
+        ),
+    )
+    @_safe
+    def sn_journal(
+        action: Literal["journal", "undo"] = "journal",
+        entry_id: str = "",
+        limit: int = 50,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """List applied writes, or revert one."""
         if action == "journal":
             views = services.undo.list(limit)
             return {"count": len(views), "entries": [view.to_dict() for view in views]}

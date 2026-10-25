@@ -29,12 +29,15 @@ request instead of one call per change.
 | `sn_files` | no | attachments: list, upload, download, delete |
 | `sn_code` | yes | the instance's own scripts, rules, policies, ACLs |
 | `sn_ops` | yes | system log, health, jobs, properties, stats |
-| `sn_local` | no | the local store: notes, cache, saved queries, journal, undo |
+| `sn_knowledge` | yes | read what the server already knows: notes, saved queries, history, cache |
+| `sn_state` | no | write the server's own local memory: notes, saved queries, cache |
+| `sn_journal` | no (destructive) | list applied writes, revert one |
 | `sn_admin` | no | update sets, scripts, ATF tests, users, groups, roles |
 
-Read-only tools carry `readOnlyHint: true`, so a client running with
-`trust: untrusted` only asks for approval on the tools that can actually
-change the instance.
+Thirteen tools, no tool carrying more than eight actions. Read-only tools
+carry `readOnlyHint: true`, so a client running with `trust: untrusted` only
+asks for approval on the tools that can actually change the instance — and
+`sn_journal`'s `undo` is marked destructive because it does.
 
 ## What it stores
 

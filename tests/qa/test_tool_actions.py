@@ -260,62 +260,62 @@ async def test_sn_ops_stats(server, gateway: FakeGateway) -> None:
 
 
 @pytest.mark.qa
-async def test_sn_local_note_search(server) -> None:
-    await call(server, "sn_local", action="note_write", key="a", title="Alpha", body="needle")
-    await call(server, "sn_local", action="note_write", key="b", title="Beta", body="other")
+async def test_sn_state_note_search(server) -> None:
+    await call(server, "sn_state", action="note_write", key="a", title="Alpha", body="needle")
+    await call(server, "sn_state", action="note_write", key="b", title="Beta", body="other")
 
-    result = await call(server, "sn_local", action="note_search", body="needle")
-
-    assert result["count"] == 1
-
-
-@pytest.mark.qa
-async def test_sn_local_note_list(server) -> None:
-    await call(server, "sn_local", action="note_write", key="a", title="Alpha", body="x")
-
-    result = await call(server, "sn_local", action="note_list")
+    result = await call(server, "sn_knowledge", action="note_search", body="needle")
 
     assert result["count"] == 1
 
 
 @pytest.mark.qa
-async def test_sn_local_note_delete(server) -> None:
-    await call(server, "sn_local", action="note_write", key="a", title="Alpha", body="x")
+async def test_sn_state_note_list(server) -> None:
+    await call(server, "sn_state", action="note_write", key="a", title="Alpha", body="x")
 
-    result = await call(server, "sn_local", action="note_delete", key="a")
+    result = await call(server, "sn_knowledge", action="note_list")
+
+    assert result["count"] == 1
+
+
+@pytest.mark.qa
+async def test_sn_state_note_delete(server) -> None:
+    await call(server, "sn_state", action="note_write", key="a", title="Alpha", body="x")
+
+    result = await call(server, "sn_state", action="note_delete", key="a")
 
     assert result["deleted"] is True
 
 
 @pytest.mark.qa
-async def test_sn_local_cache_list(server) -> None:
+async def test_sn_state_cache_list(server) -> None:
     await call(
-        server, "sn_local", action="cache_put", table="incident", sys_id="abc", payload={"n": 1}
+        server, "sn_state", action="cache_put", table="incident", sys_id="abc", payload={"n": 1}
     )
 
-    result = await call(server, "sn_local", action="cache_list", table="incident")
+    result = await call(server, "sn_knowledge", action="cache_list", table="incident")
 
     assert result["count"] == 1
 
 
 @pytest.mark.qa
-async def test_sn_local_cache_get_of_a_missing_record(server) -> None:
-    result = await call(server, "sn_local", action="cache_get", table="incident", sys_id="nope")
+async def test_sn_knowledge_cache_get_of_a_missing_record(server) -> None:
+    result = await call(server, "sn_knowledge", action="cache_get", table="incident", sys_id="nope")
 
     assert result["found"] is False
 
 
 @pytest.mark.qa
-async def test_sn_local_saved_list(server) -> None:
-    await call(server, "sn_local", action="saved_save", name="open", table="incident")
+async def test_sn_state_saved_list(server) -> None:
+    await call(server, "sn_state", action="saved_save", name="open", table="incident")
 
-    result = await call(server, "sn_local", action="saved_list")
+    result = await call(server, "sn_knowledge", action="saved_list")
 
     assert result["count"] == 1
 
 
 @pytest.mark.qa
-async def test_sn_local_undo_reverts_a_journalled_write(server, gateway: FakeGateway) -> None:
+async def test_sn_journal_undo_reverts_a_journalled_write(server, gateway: FakeGateway) -> None:
     gateway.default = ok({"result": {"sys_id": "new"}})
     await call(
         server, "sn_write", action="create", table="incident", fields={"short_description": "x"}, confirm=True
@@ -323,7 +323,7 @@ async def test_sn_local_undo_reverts_a_journalled_write(server, gateway: FakeGat
     gateway.default = ok({})
 
     result = await call(
-        server, "sn_local", action="undo", entry_id="create:incident:new", confirm=True
+        server, "sn_journal", action="undo", entry_id="create:incident:new", confirm=True
     )
 
     assert result["reverted"] is True

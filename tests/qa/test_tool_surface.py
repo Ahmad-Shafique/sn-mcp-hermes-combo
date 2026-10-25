@@ -26,11 +26,15 @@ EXPECTED_TOOLS = {
     "sn_files",
     "sn_code",
     "sn_ops",
-    "sn_local",
+    "sn_knowledge",
+    "sn_state",
+    "sn_journal",
     "sn_admin",
 }
 
-READ_ONLY_TOOLS = {"sn_read", "sn_aggregate", "sn_schema", "sn_graph", "sn_code", "sn_ops"}
+READ_ONLY_TOOLS = {
+    "sn_read", "sn_aggregate", "sn_schema", "sn_graph", "sn_code", "sn_ops", "sn_knowledge",
+}
 
 
 @pytest.fixture
@@ -51,7 +55,7 @@ async def test_the_server_exposes_a_small_consolidated_surface(server) -> None:
     tools = await server.list_tools()
 
     assert {tool.name for tool in tools} == EXPECTED_TOOLS
-    assert len(tools) == 11
+    assert len(tools) == 13
 
 
 @pytest.mark.qa
@@ -129,7 +133,7 @@ async def test_a_confirmed_write_is_applied_and_journalled(server, gateway: Fake
     )
 
     assert result["sys_id"] == "new"
-    journal = await call(server, "sn_local", action="journal")
+    journal = await call(server, "sn_journal", action="journal")
     assert journal["count"] == 1
 
 
@@ -183,9 +187,9 @@ async def test_impact_analysis_reports_the_references(server, gateway: FakeGatew
 
 @pytest.mark.qa
 async def test_a_note_is_stored_and_read_back(server) -> None:
-    await call(server, "sn_local", action="note_write", key="runbook", title="Runbook", body="steps")
+    await call(server, "sn_state", action="note_write", key="runbook", title="Runbook", body="steps")
 
-    result = await call(server, "sn_local", action="note_read", key="runbook")
+    result = await call(server, "sn_knowledge", action="note_read", key="runbook")
 
     assert result["body"] == "steps"
 
@@ -193,11 +197,11 @@ async def test_a_note_is_stored_and_read_back(server) -> None:
 @pytest.mark.qa
 async def test_a_saved_query_runs_in_one_later_call(server, gateway: FakeGateway) -> None:
     await call(
-        server, "sn_local", action="saved_save", name="open", table="incident", encoded_query="state=2"
+        server, "sn_state", action="saved_save", name="open", table="incident", encoded_query="state=2"
     )
     gateway.default = records({"sys_id": "a"})
 
-    result = await call(server, "sn_local", action="saved_run", name="open")
+    result = await call(server, "sn_knowledge", action="saved_run", name="open")
 
     assert result["count"] == 1
     assert result["name"] == "open"
@@ -207,14 +211,14 @@ async def test_a_saved_query_runs_in_one_later_call(server, gateway: FakeGateway
 async def test_a_cached_record_avoids_a_second_api_call(server, gateway: FakeGateway) -> None:
     await call(
         server,
-        "sn_local",
+        "sn_state",
         action="cache_put",
         table="incident",
         sys_id="abc",
         payload={"number": "INC01"},
     )
 
-    result = await call(server, "sn_local", action="cache_get", table="incident", sys_id="abc")
+    result = await call(server, "sn_knowledge", action="cache_get", table="incident", sys_id="abc")
 
     assert result["payload"]["number"] == "INC01"
     assert gateway.calls == []
@@ -225,7 +229,7 @@ async def test_the_call_history_records_what_was_done(server, gateway: FakeGatew
     gateway.default = records({"sys_id": "abc"})
 
     await call(server, "sn_read", action="query", table="incident")
-    result = await call(server, "sn_local", action="history")
+    result = await call(server, "sn_knowledge", action="history")
 
     assert result["count"] == 1
     assert "incident" in result["calls"][0]["summary"]
@@ -234,7 +238,7 @@ async def test_the_call_history_records_what_was_done(server, gateway: FakeGatew
 @pytest.mark.qa
 async def test_undo_needs_confirmation(server) -> None:
     with pytest.raises(Exception, match=r"undo requires confirmation"):
-        await call(server, "sn_local", action="undo", entry_id="create:incident:abc")
+        await call(server, "sn_journal", action="undo", entry_id="create:incident:abc")
 
 
 @pytest.mark.qa
