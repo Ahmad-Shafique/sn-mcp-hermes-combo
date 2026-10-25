@@ -28,6 +28,18 @@ markers = [
 branch = true
 source = ["snowmcp"]
 
+[tool.mutmut]
+source_paths = ["src"]
+# mutmut already passes -x, so a mutant only has to fail one test to be
+# killed. -p no:cacheprovider stops it rewriting the pytest cache thousands
+# of times over a full run.
+pytest_add_cli_args = ["tests", "-p", "no:cacheprovider"]
+# The business logic is where mutation testing earns its keep. The adapters
+# are transport and schema plumbing, which the contract tests cover exactly
+# (exact path, method, query parameters, body). Scope is stated here so the
+# score is never mistaken for a full-tree number.
+only_mutate = ["src/snowmcp/domain/*", "src/snowmcp/application/*"]
+
 [tool.coverage.report]
 show_missing = true
 exclude_lines = [

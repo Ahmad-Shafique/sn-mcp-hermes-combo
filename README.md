@@ -208,13 +208,22 @@ are closed, never lower it.
 .venv/bin/python scripts/mutation_gate.py --min-score 80 --json
 ```
 
+**Scope:** the mutation gate covers `src/snowmcp/domain/` and
+`src/snowmcp/application/` — the business rules and use cases. The adapters
+(transport, SQLite store, MCP surface) are excluded by an explicit
+`only_mutate` in `pyproject.toml`, because a mutant there is a changed
+default limit or a renamed dict key rather than a wrong rule, and the
+contract tests already pin those exactly. The scope is declared in the
+config so the score is never mistaken for a full-tree number.
+
 Coverage says a line ran; only mutation testing says a wrong answer would
 have been caught. Most surviving mutants are *argument* mutants - a changed
 default, a removed keyword argument - which is why the contract tests
 (`tests/integration/test_*_contracts.py`) matter as much as the unit tests.
 
 > `mutmut` caches its verdicts in `mutants/`. After changing a test, run
-> `rm -rf mutants` or the next run replays stale results.
+> `rm -rf mutants` or the next run replays stale results. A full scoped run
+> takes about an hour on four cores, so run it in the background.
 
 ## Licence
 
