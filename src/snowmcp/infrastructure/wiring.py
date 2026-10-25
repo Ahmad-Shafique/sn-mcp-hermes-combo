@@ -63,7 +63,7 @@ def build_services(
         files=FileService(instance, policy),
         code=CodeService(instance, policy),
         ops=OpsService(instance, policy),
-        admin=AdminService(instance, policy),
+        admin=AdminService(instance, policy, settings.scripted_rest_url),
         knowledge=KnowledgeService(local),
         cache=CacheService(local),
         saved_queries=SavedQueryService(local, instance),

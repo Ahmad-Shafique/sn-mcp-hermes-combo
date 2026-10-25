@@ -124,6 +124,7 @@ class Relation:
     parent_sys_id: str
     child_sys_id: str
     type_sys_id: str
+    type_label: str = ""
     parent_table: str = ""
     child_table: str = ""
 
@@ -133,6 +134,7 @@ class Relation:
             "parent_sys_id": self.parent_sys_id,
             "child_sys_id": self.child_sys_id,
             "type_sys_id": self.type_sys_id,
+            "type_label": self.type_label,
             "parent_table": self.parent_table,
             "child_table": self.child_table,
         }

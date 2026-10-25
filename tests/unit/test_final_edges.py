@@ -34,12 +34,15 @@ def test_an_empty_record_page_has_no_length() -> None:
 
 
 def test_a_relation_converts_to_a_plain_mapping() -> None:
-    relation = Relation(parent_sys_id="p", child_sys_id="c", type_sys_id="t", parent_table="server")
+    relation = Relation(
+        parent_sys_id="p", child_sys_id="c", type_sys_id="t", parent_table="server"
+    )
 
     assert relation.to_dict() == {
         "parent_sys_id": "p",
         "child_sys_id": "c",
         "type_sys_id": "t",
+        "type_label": "",
         "parent_table": "server",
         "child_table": "",
     }

@@ -15,8 +15,6 @@ from snowmcp.application.responses import unwrap_records
 from snowmcp.domain.policy import WritePolicy
 from snowmcp.domain.records import GraphNode, Relation
 
-MAX_TRAVERSAL_DEPTH = 5
-
 
 class GraphService:
     """Use cases over the CMDB Service Graph."""
@@ -26,7 +24,12 @@ class GraphService:
         self._policy = policy
 
     def relations(self, sys_id: str, *, direction: str = "both", limit: int = 200) -> list[Relation]:
-        """List the relationships touching one configuration item."""
+        """List the relationships touching one configuration item.
+
+        A relation row carries a relationship *type* sys_id. The type's label
+        lives in ``cmdb_rel_type``, so it is resolved here - a graph of bare
+        sys_ids is not something a human or an agent can read.
+        """
         self._policy.check_read("cmdb_rel_ci")
         response = self._gateway.request(
             "GET",
@@ -45,11 +48,32 @@ class GraphService:
                     parent_sys_id=str(item.get("parent", "")),
                     child_sys_id=str(item.get("child", "")),
                     type_sys_id=str(item.get("type", "")),
+                    type_label=self._relation_type_label(str(item.get("type", ""))),
                     parent_table=str(item.get("parent_type", "")),
                     child_table=str(item.get("child_type", "")),
                 )
             )
         return relations
+
+    def _relation_type_label(self, type_sys_id: str) -> str:
+        """Resolve a relationship type sys_id to its label."""
+        if not type_sys_id:
+            return ""
+        self._policy.check_read("cmdb_rel_type")
+        response = self._gateway.request(
+            "GET",
+            endpoints.table_path("cmdb_rel_type"),
+            params={"sysparm_query": f"sys_id={type_sys_id}", "sysparm_limit": "1"},
+        )
+        if not response.ok:
+            return ""
+        body = unwrap_records(response)
+        result = body.get("result")
+        if isinstance(result, list) and result and isinstance(result[0], dict):
+            return str(result[0].get("name", ""))
+        if isinstance(result, dict):
+            return str(result.get("name", ""))
+        return ""
 
     def traverse(
         self,
@@ -60,7 +84,7 @@ class GraphService:
         limit: int = 500,
     ) -> list[GraphNode]:
         """Walk the Service Graph outward from a CI and return the nodes reached."""
-        bounded_depth = max(1, min(depth, MAX_TRAVERSAL_DEPTH))
+        bounded_depth = max(1, min(depth, endpoints.MAX_TRAVERSAL_DEPTH))
         seen: set[str] = {sys_id}
         nodes: list[GraphNode] = []
         frontier = [sys_id]
@@ -186,9 +210,24 @@ class GraphService:
         result = body.get("result")
         return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
 
-    def csdm_models(self, *, limit: int = 100) -> list[dict[str, Any]]:
-        """The Common Service Data Model domains and their models."""
-        self._policy.check_read("sys_csdm_domain_model")
+    def csdm_models(self, *, limit: int = 100) -> dict[str, Any]:
+        """The Common Service Data Model domains and their models.
+
+        ``sys_csdm_domain_model`` and ``sys_csdm_context`` are *not* named in
+        ServiceNow's public documentation - they may be internal tables. So
+        this probes ``sys_db_object`` first and reports honestly rather than
+        failing with a confusing 404.
+        """
+        self._policy.check_read("sys_db_object")
+        if not self._table_exists("sys_csdm_domain_model"):
+            return {
+                "available": False,
+                "reason": (
+                    "the table 'sys_csdm_domain_model' is not present on this instance; "
+                    "it is not part of ServiceNow's public documented contract"
+                ),
+                "models": [],
+            }
         response = self._gateway.request(
             "GET",
             endpoints.table_path("sys_csdm_domain_model"),
@@ -196,11 +235,23 @@ class GraphService:
         )
         body = unwrap_records(response)
         result = body.get("result")
-        return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        models = (
+            [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        )
+        return {"available": True, "models": models}
 
-    def csdm_context(self, model: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    def csdm_context(self, model: str, *, limit: int = 100) -> dict[str, Any]:
         """The contexts (graph projections) of one CSDM model."""
-        self._policy.check_read("sys_csdm_context")
+        self._policy.check_read("sys_db_object")
+        if not self._table_exists("sys_csdm_context"):
+            return {
+                "available": False,
+                "reason": (
+                    "the table 'sys_csdm_context' is not present on this instance; "
+                    "it is not part of ServiceNow's public documented contract"
+                ),
+                "contexts": [],
+            }
         response = self._gateway.request(
             "GET",
             endpoints.table_path("sys_csdm_context"),
@@ -208,7 +259,22 @@ class GraphService:
         )
         body = unwrap_records(response)
         result = body.get("result")
-        return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        contexts = (
+            [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        )
+        return {"available": True, "model": model, "contexts": contexts}
+
+    def _table_exists(self, table: str) -> bool:
+        """Ask the instance whether a table exists."""
+        response = self._gateway.request(
+            "GET",
+            endpoints.table_path("sys_db_object"),
+            params={"sysparm_query": f"name={table}", "sysparm_limit": "1"},
+        )
+        if not response.ok:
+            return False
+        body = unwrap_records(response)
+        return bool(body.get("result"))
 
     def _fields_of(self, table: str) -> list[dict[str, Any]]:
         response = self._gateway.request(

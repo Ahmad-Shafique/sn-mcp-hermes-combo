@@ -111,15 +111,18 @@ async def test_sn_graph_dependents(server, gateway: FakeGateway) -> None:
 
 @pytest.mark.qa
 async def test_sn_graph_csdm_models(server, gateway: FakeGateway) -> None:
+    gateway.responses["/api/now/table/sys_db_object"] = records({"name": "sys_csdm_domain_model"})
     gateway.default = records({"name": "Service Domain"})
 
     result = await call(server, "sn_graph", action="csdm")
 
+    assert result["available"] is True
     assert result["models"][0]["name"] == "Service Domain"
 
 
 @pytest.mark.qa
 async def test_sn_graph_csdm_contexts(server, gateway: FakeGateway) -> None:
+    gateway.responses["/api/now/table/sys_db_object"] = records({"name": "sys_csdm_context"})
     gateway.default = records({"name": "Service Domain"})
 
     result = await call(server, "sn_graph", action="csdm", model="Service Domain")
@@ -139,7 +142,7 @@ async def test_sn_catalog_categories(server, gateway: FakeGateway) -> None:
 
 @pytest.mark.qa
 async def test_sn_catalog_variables(server, gateway: FakeGateway) -> None:
-    gateway.default = records({"name": "size"})
+    gateway.default = ok({"name": "Laptop", "variables": [{"name": "size"}]})
 
     result = await call(server, "sn_catalog", action="variables", item="item1")
 
@@ -342,9 +345,8 @@ async def test_sn_admin_set_update_set(server, gateway: FakeGateway) -> None:
 async def test_sn_admin_script(server, gateway: FakeGateway) -> None:
     gateway.default = ok({"result": {}})
 
-    await call(server, "sn_admin", action="script", script="var x = 1;", confirm=True)
-
-    assert gateway.last().path == "/api/now/script"
+    with pytest.raises(Exception, match=r"needs SN_SCRIPTED_REST_URL"):
+        await call(server, "sn_admin", action="script", script="var x = 1;", confirm=True)
 
 
 @pytest.mark.qa

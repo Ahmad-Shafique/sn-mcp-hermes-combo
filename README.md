@@ -56,6 +56,55 @@ change the instance.
 - The instance URL must be `https://` (or `http://` for local development).
 - Every write is journalled; `sn_local action=undo` reverts it.
 
+## How this relates to ServiceNow's own MCP servers
+
+ServiceNow ships **official** MCP servers, and that changes what a
+third-party server is for:
+
+| Server | What it is |
+|---|---|
+| **MCP Server Console** (`sn_mcp_server`) | A platform product for building MCP servers on an instance. Exposes any REST API, AI skills, subflows, actions and Knowledge Graph schemas as tools. Streamable HTTP at `https://<instance>/sncapps/mcp-server/mcp/<name>`, OAuth 2.0. |
+| **ITSM MCP Server** (`sn_itsm_mcp_server`) | First-party ITSM tools: `incident.get_details`, `incident.modify`, `change.lifecycle`, `change.analyze`, `change.query`, `change.relation`, requester tools. |
+| **CSM MCP Server** | `get_case_tasks`, `get_customer_service_cases`, `case_summarization`, `resolution_notes_generation`, `sentiment_analysis`. |
+| **MCP for Enterprise Architecture** | Includes *Related Entities Resolver*, whose `traverse` mode does multi-level impact analysis from a single CI. |
+
+This server does not compete on raw connectivity — ServiceNow already has
+that covered. It exists for the gaps the first-party servers leave:
+
+1. **One unified namespace across every table**, not one tool per domain and
+   a choice of 500 names.
+2. **A local store.** Notes, a record cache, saved queries, call history and
+   a journalled write log with undo. Nothing above has one.
+3. **A batch action** that applies many writes in one HTTP request.
+4. **Schema-aware parameters** named after the documented `sysparm_*` query
+   parameters, so behaviour is predictable.
+5. **Client-side graph traversal** with resolved relationship-type labels.
+
+## Endpoints it calls
+
+Verified against ServiceNow's own API reference, not assumed.
+
+| Area | Endpoint |
+|---|---|
+| Table API | `GET/POST/PUT/PATCH/DELETE /api/now/table/{table}` and `/{sys_id}` |
+| Aggregate (stats) | `GET /api/now/stats/{table}` with `sysparm_aggregate` |
+| Batch | `POST /api/now/v1/batch` with `rest_requests[]` (id, method, relative url, Base64 body) |
+| CMDB class schema | `GET /api/now/cmdb/meta/{className}` — the only *documented* class-introspection endpoint |
+| CMDB relations | `GET /api/now/table/cmdb_rel_ci` (the traversal table), types resolved from `cmdb_rel_type` |
+| Attachments | `GET/POST/DELETE /api/now/attachment` |
+| Service Catalog | `/api/sn_sc/servicecatalog/items`, `.../{sys_id}`, `.../{sys_id}/order_now` — note the API has **its own root**, not `/api/now/...` |
+| Update sets | `GET/POST /api/now/table/sys_update_set` |
+| Server-side script | **No documented REST endpoint exists.** Point `SN_SCRIPTED_REST_URL` at a Scripted REST API you control. |
+
+Two things are deliberately *not* hardcoded, because ServiceNow's public
+contract does not name them:
+
+- `sys_csdm_domain_model` and `sys_csdm_context` are probed through
+  `sys_db_object` first. If the instance does not have them, the tool says so
+  plainly instead of returning a confusing 404.
+- CMDB class field lists are read from the instance, never hardcoded — CSDM
+  class models are extensible per instance.
+
 ## Install
 
 ```bash
@@ -72,6 +121,7 @@ Copy `.env.example` to your environment and fill it in.
 | `SN_INSTANCE_URL` | `https://yourcompany.service-now.com` (required) |
 | `SN_USERNAME` / `SN_PASSWORD` | basic auth |
 | `SN_OAUTH_CLIENT_ID` / `SN_OAUTH_CLIENT_SECRET` / `SN_OAUTH_TOKEN_URL` | OAuth2 client credentials (instead of basic) |
+| `SN_SCRIPTED_REST_URL` | path of a Scripted REST API that executes server-side script, e.g. `/api/sn_gsc/v1/execute` |
 | `SN_READ_ONLY` | `true` refuses every write |
 | `SN_ALLOWED_TABLES` | comma-separated allow list |
 | `SN_DENIED_TABLES` | comma-separated deny list |

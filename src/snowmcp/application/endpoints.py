@@ -14,6 +14,16 @@ from snowmcp.domain.records import Query, TableRef
 
 API = "/api/now"
 
+# The Service Catalog API is NOT under /api/now - it has its own root.
+CATALOG_API = "/api/sn_sc/servicecatalog"
+
+# ServiceNow applies sysparm_limit *before* ACL evaluation, so a limit far
+# above the caller's row count can still return rows they cannot see.
+MAX_TRAVERSAL_DEPTH = 10
+DEFAULT_TRAVERSAL_DEPTH = 6
+MAX_TRAVERSAL_NODES = 500
+DEFAULT_TRAVERSAL_NODES = 250
+
 # Tables that carry the instance's own automation code.
 CODE_TABLES: Mapping[str, str] = {
     "business_rule": "sys_script",
@@ -149,8 +159,90 @@ def script_search_params(text: str, *, script_type: str = "", limit: int = 50) -
 
 
 def batch_body(operations: list[Mapping[str, Any]]) -> dict[str, Any]:
-    """Build a Batch API request body."""
-    return {"batch_request_id": None, "operations": list(operations)}
+    """Build a Batch API request body.
+
+    The Batch API takes ``rest_requests``, each with an id, a method and a
+    *relative url* (query parameters included). A body must be Base64-encoded
+    and carry its own headers. The friendly per-operation shape the caller
+    uses (``table``/``body``) is translated here, so the caller never has to
+    know the wire format.
+    """
+    import base64
+    import json
+
+    rest_requests = []
+    for index, operation in enumerate(operations):
+        method = str(operation.get("method", "GET")).upper()
+        table = str(operation.get("table", ""))
+        sys_id = str(operation.get("sys_id", ""))
+        path = f"/api/now/table/{table}"
+        if sys_id:
+            path = f"{path}/{sys_id}"
+        query = operation.get("query") or {}
+        if query:
+            path = f"{path}?{urlencode(query)}"
+        item: dict[str, Any] = {
+            "id": str(index + 1),
+            "method": method,
+            "url": path,
+        }
+        payload = operation.get("body")
+        if payload is not None:
+            item["body"] = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+            item["headers"] = [{"name": "Content-Type", "value": "application/json"}]
+        rest_requests.append(item)
+    return {"batch_request_id": None, "rest_requests": rest_requests}
+
+
+def batch_path() -> str:
+    """The Batch API path. The Batch API is versioned."""
+    return f"{API}/v1/batch"
+
+
+def catalog_items_path() -> str:
+    """The Service Catalog items endpoint."""
+    return f"{CATALOG_API}/items"
+
+
+def catalog_item_path(item_sys_id: str) -> str:
+    """One Service Catalog item."""
+    return f"{CATALOG_API}/items/{item_sys_id}"
+
+
+def catalog_order_path(item_sys_id: str) -> str:
+    """The endpoint that submits a catalog order."""
+    return f"{CATALOG_API}/items/{item_sys_id}/order_now"
+
+
+def catalog_items_params(
+    *, category: str = "", text: str = "", catalog: str = "", limit: int = 50
+) -> dict[str, str]:
+    """Query parameters for browsing the catalog."""
+    params: dict[str, str] = {"sysparm_limit": str(limit)}
+    if category:
+        params["sysparm_category"] = category
+    if text:
+        params["sysparm_text"] = text
+    if catalog:
+        params["sysparm_catalog"] = catalog
+    return params
+
+
+def cmdb_meta_path(class_name: str) -> str:
+    """The documented CMDB class-introspection endpoint."""
+    return f"{API}/cmdb/meta/{class_name}"
+
+
+def cmdb_instance_relation_path(class_name: str, sys_id: str) -> str:
+    """The documented CMDB relation endpoint for one CI."""
+    return f"{API}/cmdb/instance/{class_name}/{sys_id}/relation"
+
+
+def urlencode(params: Mapping[str, Any]) -> str:
+    """Encode query parameters for a Batch API url."""
+    from urllib.parse import urlencode as _urlencode
+
+    return _urlencode({key: str(value) for key, value in params.items()})
 
 
 def table_list_params(pattern: str = "", *, limit: int = 200) -> dict[str, str]:

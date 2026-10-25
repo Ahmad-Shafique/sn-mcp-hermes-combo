@@ -239,7 +239,7 @@ async def test_undo_needs_confirmation(server) -> None:
 
 @pytest.mark.qa
 async def test_the_catalog_lists_items(server, gateway: FakeGateway) -> None:
-    gateway.default = records({"name": "Laptop"})
+    gateway.default = ok([{"name": "Laptop"}])
 
     result = await call(server, "sn_catalog", action="items", text="Laptop")
 

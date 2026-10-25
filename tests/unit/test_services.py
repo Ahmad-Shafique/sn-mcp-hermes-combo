@@ -23,25 +23,31 @@ def policy() -> WritePolicy:
 
 
 class TestCatalogService:
-    """Service Catalog."""
+    """Service Catalog. The API has its own root, /api/sn_sc/..."""
 
-    def test_items_are_listed(self) -> None:
-        gateway = FakeGateway(default=records({"name": "Laptop"}))
+    def test_items_are_listed_from_the_catalog_api(self) -> None:
+        gateway = FakeGateway(default=ok([{"name": "Laptop"}]))
         service = CatalogService(gateway, policy())
 
         rows = service.items(text="Laptop")
 
-        assert gateway.last().path == "/api/now/table/sc_cat_item"
-        assert "LIKE" in gateway.last().params["sysparm_query"]
+        assert gateway.last().path == "/api/sn_sc/servicecatalog/items"
+        assert gateway.last().params["sysparm_text"] == "Laptop"
         assert rows[0]["name"] == "Laptop"
 
-    def test_items_filter_by_category(self) -> None:
-        gateway = FakeGateway(default=records({"name": "Laptop"}))
+    def test_items_are_filtered_by_category(self) -> None:
+        gateway = FakeGateway(default=ok([{"name": "Laptop"}]))
         service = CatalogService(gateway, policy())
 
         service.items(category="hardware")
 
-        assert gateway.last().params["sysparm_query"] == "category=hardware"
+        assert gateway.last().params["sysparm_category"] == "hardware"
+
+    def test_a_non_list_response_reads_as_no_items(self) -> None:
+        gateway = FakeGateway(default=ok({"result": []}))
+        service = CatalogService(gateway, policy())
+
+        assert service.items() == []
 
     def test_categories_are_listed(self) -> None:
         gateway = FakeGateway(default=records({"title": "Services"}))
@@ -52,22 +58,28 @@ class TestCatalogService:
         assert gateway.last().path == "/api/now/table/sc_category"
         assert rows[0]["title"] == "Services"
 
-    def test_variables_of_an_item_are_listed(self) -> None:
-        gateway = FakeGateway(default=records({"name": "size"}))
+    def test_variables_of_an_item_are_read_from_the_catalog_api(self) -> None:
+        gateway = FakeGateway(default=ok({"name": "Laptop", "variables": [{"name": "size"}]}))
         service = CatalogService(gateway, policy())
 
         result = service.variables("item1")
 
-        assert result["item"] == "item1"
+        assert gateway.last().path == "/api/sn_sc/servicecatalog/items/item1"
         assert result["variables"][0]["name"] == "size"
 
-    def test_ordering_posts_to_the_catalog(self) -> None:
+    def test_an_item_without_variables_reads_as_empty(self) -> None:
+        gateway = FakeGateway(default=ok({"name": "Laptop"}))
+        service = CatalogService(gateway, policy())
+
+        assert service.variables("item1")["variables"] == []
+
+    def test_ordering_posts_to_the_documented_order_endpoint(self) -> None:
         gateway = FakeGateway(default=ok({"number": "REQ01"}))
         service = CatalogService(gateway, policy())
 
         result = service.order("item1", {"size": "M"}, confirmed=True)
 
-        assert gateway.last().path == "/api/now/sn_sc/servicecatalog/items/item1/order"
+        assert gateway.last().path == "/api/sn_sc/servicecatalog/items/item1/order_now"
         assert result["number"] == "REQ01"
 
 
@@ -289,13 +301,21 @@ class TestAdminService:
         assert gateway.last().path == "/api/now/table/sys_update_set"
         assert result["update_set"] == "Sprint 1"
 
-    def test_running_a_script_posts_to_the_script_api(self) -> None:
+    def test_running_a_script_needs_a_scripted_rest_api(self) -> None:
+        """ServiceNow documents no REST endpoint that runs arbitrary script."""
         gateway = FakeGateway(default=ok({"result": {}}))
         service = AdminService(gateway, policy())
 
+        with pytest.raises(Exception, match=r"needs SN_SCRIPTED_REST_URL"):
+            service.script("var x = 1;", confirmed=True)
+
+    def test_running_a_script_posts_to_the_configured_scripted_rest_api(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {}}))
+        service = AdminService(gateway, policy(), "/api/sn_gsc/v1/execute")
+
         service.script("var x = 1;", confirmed=True)
 
-        assert gateway.last().path == "/api/now/script"
+        assert gateway.last().path == "/api/sn_gsc/v1/execute"
         assert gateway.last().json_body["script"] == "var x = 1;"
 
     def test_running_a_test_suite_posts_to_the_atf_api(self) -> None:

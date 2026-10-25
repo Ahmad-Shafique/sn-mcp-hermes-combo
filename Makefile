@@ -1,6 +1,9 @@
 PY := .venv/bin/python
 PKG := snowmcp
 
+# The mutation-score floor. Raise it as survivors are closed; never lower it.
+MIN_MUTATION_SCORE ?= 80
+
 .PHONY: setup test unit integration qa coverage mutation gate clean install
 
 setup:
@@ -29,6 +32,7 @@ mutation:
 	rm -rf mutants
 	PYTHONPATH=src .venv/bin/mutmut run
 	.venv/bin/mutmut results
+	$(PY) scripts/mutation_gate.py --min-score $(MIN_MUTATION_SCORE)
 
 gate: coverage mutation
 

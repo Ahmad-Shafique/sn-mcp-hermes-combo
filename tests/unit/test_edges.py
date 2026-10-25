@@ -183,12 +183,13 @@ class TestServiceEdges:
         assert "sysparm_query" not in gateway.last().params
 
     def test_catalog_items_combine_a_category_and_a_text_filter(self) -> None:
-        gateway = FakeGateway(default=records({"name": "Laptop"}))
+        gateway = FakeGateway(default=ok([{"name": "Laptop"}]))
         service = CatalogService(gateway, policy())
 
         service.items(category="hardware", text="Lap")
 
-        assert gateway.last().params["sysparm_query"] == "category=hardware^LIKELap"
+        assert gateway.last().params["sysparm_category"] == "hardware"
+        assert gateway.last().params["sysparm_text"] == "Lap"
 
     def test_the_log_can_be_filtered_by_source_alone(self) -> None:
         gateway = FakeGateway(default=records({"message": "oops"}))

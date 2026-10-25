@@ -135,10 +135,70 @@ def test_the_script_search_can_filter_by_type() -> None:
 
 
 def test_the_batch_body_carries_the_operations() -> None:
-    body = endpoints.batch_body([{"method": "POST"}])
+    """The Batch API takes rest_requests, each with an id, method and url."""
+    body = endpoints.batch_body([{"method": "POST", "table": "incident"}])
 
-    assert body["operations"] == [{"method": "POST"}]
     assert body["batch_request_id"] is None
+    request = body["rest_requests"][0]
+    assert request["id"] == "1"
+    assert request["method"] == "POST"
+    assert request["url"] == "/api/now/table/incident"
+
+
+def test_a_batch_body_is_base64_encoded_with_its_headers() -> None:
+    body = endpoints.batch_body(
+        [{"method": "POST", "table": "incident", "body": {"short_description": "x"}}]
+    )
+
+    request = body["rest_requests"][0]
+    assert request["body"] == "eyJzaG9ydF9kZXNjcmlwdGlvbiI6ICJ4In0="
+    assert request["headers"] == [{"name": "Content-Type", "value": "application/json"}]
+
+
+def test_a_batch_operation_can_target_one_record() -> None:
+    body = endpoints.batch_body(
+        [{"method": "PATCH", "table": "incident", "sys_id": "abc"}]
+    )
+
+    assert body["rest_requests"][0]["url"] == "/api/now/table/incident/abc"
+
+
+def test_a_batch_operation_can_carry_query_parameters() -> None:
+    body = endpoints.batch_body(
+        [{"method": "GET", "table": "incident", "query": {"sysparm_limit": "5"}}]
+    )
+
+    assert body["rest_requests"][0]["url"] == "/api/now/table/incident?sysparm_limit=5"
+
+
+def test_the_batch_path_is_versioned() -> None:
+    assert endpoints.batch_path() == "/api/now/v1/batch"
+
+
+def test_the_catalog_api_has_its_own_root() -> None:
+    assert endpoints.catalog_items_path() == "/api/sn_sc/servicecatalog/items"
+    assert endpoints.catalog_item_path("i1") == "/api/sn_sc/servicecatalog/items/i1"
+    assert endpoints.catalog_order_path("i1") == "/api/sn_sc/servicecatalog/items/i1/order_now"
+
+
+def test_the_catalog_items_params_use_the_documented_names() -> None:
+    params = endpoints.catalog_items_params(category="hardware", text="Lap", catalog="c1", limit=10)
+
+    assert params["sysparm_category"] == "hardware"
+    assert params["sysparm_text"] == "Lap"
+    assert params["sysparm_catalog"] == "c1"
+    assert params["sysparm_limit"] == "10"
+
+
+def test_the_cmdb_meta_path_is_the_documented_class_endpoint() -> None:
+    assert endpoints.cmdb_meta_path("Server") == "/api/now/cmdb/meta/Server"
+
+
+def test_the_cmdb_instance_relation_path_is_built() -> None:
+    assert (
+        endpoints.cmdb_instance_relation_path("Server", "abc")
+        == "/api/now/cmdb/instance/Server/abc/relation"
+    )
 
 
 def test_the_table_list_params_can_filter_by_pattern() -> None:

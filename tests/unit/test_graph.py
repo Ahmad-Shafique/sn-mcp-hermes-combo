@@ -30,9 +30,60 @@ def test_relations_reads_the_relationship_table() -> None:
 
     relations = service.relations("p1")
 
-    assert gateway.last().path == "/api/now/table/cmdb_rel_ci"
+    assert gateway.calls[0].path == "/api/now/table/cmdb_rel_ci"
     assert relations[0].parent_sys_id == "p1"
     assert relations[0].child_table == "application"
+
+
+def test_relations_resolve_the_relationship_type_label() -> None:
+    gateway = FakeGateway(
+        responses={
+            "/api/now/table/cmdb_rel_type": records({"name": "Contains"}),
+        },
+        default=records({"parent": "p1", "child": "c1", "type": "t1"}),
+    )
+    service = build_service(gateway)
+
+    relations = service.relations("p1")
+
+    assert relations[0].type_label == "Contains"
+
+
+def test_a_relationship_type_that_cannot_be_resolved_has_no_label() -> None:
+    gateway = FakeGateway(
+        responses={"/api/now/table/cmdb_rel_type": Response(status=403, body={})},
+        default=records({"parent": "p1", "child": "c1", "type": "t1"}),
+    )
+    service = build_service(gateway)
+
+    assert service.relations("p1")[0].type_label == ""
+
+
+def test_a_relationship_type_returned_as_a_dict_is_resolved() -> None:
+    gateway = FakeGateway(
+        responses={"/api/now/table/cmdb_rel_type": ok({"result": {"name": "Depends on"}})},
+        default=records({"parent": "p1", "child": "c1", "type": "t1"}),
+    )
+    service = build_service(gateway)
+
+    assert service.relations("p1")[0].type_label == "Depends on"
+
+
+def test_an_unresolvable_relationship_type_yields_an_empty_label() -> None:
+    gateway = FakeGateway(
+        responses={"/api/now/table/cmdb_rel_type": ok({"result": []})},
+        default=records({"parent": "p1", "child": "c1", "type": "t1"}),
+    )
+    service = build_service(gateway)
+
+    assert service.relations("p1")[0].type_label == ""
+
+
+def test_a_relationship_without_a_type_is_not_resolved() -> None:
+    gateway = FakeGateway(default=records({"parent": "p1", "child": "c1", "type": ""}))
+    service = build_service(gateway)
+
+    assert service.relations("p1")[0].type_label == ""
 
 
 def test_relations_skips_malformed_rows() -> None:
@@ -178,23 +229,68 @@ def test_impact_auto_treats_a_failed_probe_as_not_a_table() -> None:
 
 
 def test_csdm_models_lists_the_domain_models() -> None:
-    gateway = FakeGateway(default=records({"name": "Service Domain"}))
+    gateway = FakeGateway(
+        responses={
+            "/api/now/table/sys_db_object": records({"name": "sys_csdm_domain_model"}),
+            "/api/now/table/sys_csdm_domain_model": records({"name": "Service Domain"}),
+        }
+    )
     service = build_service(gateway)
 
-    rows = service.csdm_models()
+    result = service.csdm_models()
 
-    assert gateway.last().path == "/api/now/table/sys_csdm_domain_model"
-    assert rows[0]["name"] == "Service Domain"
+    assert result["available"] is True
+    assert result["models"][0]["name"] == "Service Domain"
+
+
+def test_csdm_models_reports_honestly_when_the_table_is_absent() -> None:
+    """sys_csdm_domain_model is not in ServiceNow's public contract."""
+    gateway = FakeGateway(
+        responses={"/api/now/table/sys_db_object": ok({"result": []})},
+    )
+    service = build_service(gateway)
+
+    result = service.csdm_models()
+
+    assert result["available"] is False
+    assert result["models"] == []
+    assert "not part of ServiceNow's public documented contract" in result["reason"]
+
+
+def test_a_failed_table_probe_counts_as_absent() -> None:
+    gateway = FakeGateway(
+        responses={"/api/now/table/sys_db_object": Response(status=403, body={})},
+    )
+    service = build_service(gateway)
+
+    assert service.csdm_models()["available"] is False
 
 
 def test_csdm_context_lists_the_contexts_of_a_model() -> None:
-    gateway = FakeGateway(default=records({"name": "Service Domain"}))
+    gateway = FakeGateway(
+        responses={
+            "/api/now/table/sys_db_object": records({"name": "sys_csdm_context"}),
+            "/api/now/table/sys_csdm_context": records({"name": "Service Domain"}),
+        }
+    )
     service = build_service(gateway)
 
-    rows = service.csdm_context("Service Domain")
+    result = service.csdm_context("Service Domain")
 
-    assert gateway.last().params["sysparm_query"] == "domain_model=Service Domain"
-    assert len(rows) == 1
+    assert result["available"] is True
+    assert result["contexts"][0]["name"] == "Service Domain"
+
+
+def test_csdm_context_reports_honestly_when_the_table_is_absent() -> None:
+    gateway = FakeGateway(
+        responses={"/api/now/table/sys_db_object": ok({"result": []})},
+    )
+    service = build_service(gateway)
+
+    result = service.csdm_context("Service Domain")
+
+    assert result["available"] is False
+    assert result["contexts"] == []
 
 
 def test_table_config_includes_the_object_metadata() -> None:

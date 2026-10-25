@@ -124,7 +124,7 @@ class RecordService:
             else:
                 self._policy.check_read(table)
         body = endpoints.batch_body(list(operations))
-        response = self._gateway.request("POST", f"{endpoints.API}/batch", json_body=body)
+        response = self._gateway.request("POST", endpoints.batch_path(), json_body=body)
         results = unwrap_list(response)
         for index, operation in enumerate(operations):
             verb = str(operation.get("method", "")).upper()
@@ -232,20 +232,23 @@ class SchemaService:
         return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
 
     def class_info(self, class_name: str) -> dict[str, Any]:
-        """Read the CMDB class definition for a class."""
+        """Read the CMDB class definition.
+
+        ``GET /api/now/cmdb/meta/{className}`` is the only *documented*
+        class-introspection endpoint, and it returns the attributes, parent,
+        children and the identification and relationship rules - which is
+        exactly what a client needs and cannot hardcode, because CSDM class
+        models are extensible per instance.
+        """
         self._policy.check_read("cmdb_class_info")
-        response = self._gateway.request(
-            "GET",
-            endpoints.table_path("cmdb_class_info"),
-            params={"sysparm_query": f"name={class_name}", "sysparm_limit": "1"},
-        )
+        response = self._gateway.request("GET", endpoints.cmdb_meta_path(class_name))
         body = unwrap_records(response)
         result = body.get("result")
-        if isinstance(result, list) and result:
-            return result[0]
         if isinstance(result, dict):
             return result
-        return {}
+        if isinstance(result, list) and result:
+            return result[0]
+        return body
 
     def field_references(self, field_name: str) -> list[dict[str, Any]]:
         """Find every dictionary reference to a field, for impact analysis."""

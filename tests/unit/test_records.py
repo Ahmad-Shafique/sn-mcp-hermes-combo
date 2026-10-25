@@ -135,7 +135,7 @@ def test_batch_applies_many_operations_in_one_request() -> None:
     results = service.batch(operations, confirmed=True)
 
     assert len(gateway.calls) == 1
-    assert gateway.last().path == "/api/now/batch"
+    assert gateway.last().path == "/api/now/v1/batch"
     assert len(results) == 2
 
 
@@ -273,20 +273,23 @@ class TestSchemaService:
         assert gateway.last().params["sysparm_query"] == "name=incident"
         assert rows == [{"element_id": "x"}]
 
-    def test_class_info_returns_the_first_match(self) -> None:
-        gateway = FakeGateway(default=records({"name": "Server"}))
+    def test_class_info_uses_the_documented_cmdb_meta_endpoint(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {"name": "Server", "attributes": []}}))
+        service = SchemaService(gateway, WritePolicy(require_confirm=False))
+
+        result = service.class_info("Server")
+
+        assert gateway.last().path == "/api/now/cmdb/meta/Server"
+        assert result["name"] == "Server"
+
+    def test_class_info_returns_a_list_result(self) -> None:
+        gateway = FakeGateway(default=ok({"result": [{"name": "Server"}]}))
         service = SchemaService(gateway, WritePolicy(require_confirm=False))
 
         assert service.class_info("Server") == {"name": "Server"}
 
-    def test_class_info_returns_an_empty_mapping_when_absent(self) -> None:
-        gateway = FakeGateway(default=ok({"result": []}))
-        service = SchemaService(gateway, WritePolicy(require_confirm=False))
-
-        assert service.class_info("Missing") == {}
-
-    def test_class_info_returns_a_dict_result(self) -> None:
-        gateway = FakeGateway(default=ok({"result": {"name": "Server"}}))
+    def test_class_info_falls_back_to_the_body(self) -> None:
+        gateway = FakeGateway(default=ok({"name": "Server"}))
         service = SchemaService(gateway, WritePolicy(require_confirm=False))
 
         assert service.class_info("Server") == {"name": "Server"}

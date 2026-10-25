@@ -246,8 +246,8 @@ def build_server(services: Services) -> MCPServer:
             return {"sys_id": sys_id, "count": len(nodes), "nodes": [n.__dict__ for n in nodes]}
         if action == GraphAction.CSDM.value:
             if model:
-                return {"model": model, "contexts": services.graph.csdm_context(model)}
-            return {"models": services.graph.csdm_models()}
+                return services.graph.csdm_context(model)
+            return services.graph.csdm_models()
         return services.graph.impact(target, kind=kind)
 
     @server.tool(

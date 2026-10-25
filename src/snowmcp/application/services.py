@@ -8,16 +8,26 @@ from typing import Any, Mapping
 from snowmcp.application import endpoints
 from snowmcp.application.ports import InstanceGateway
 from snowmcp.application.responses import unwrap, unwrap_records
-from snowmcp.domain.errors import ValidationError
+from snowmcp.domain.errors import ConfigurationError, ValidationError
 from snowmcp.domain.policy import WritePolicy
 
 CATALOG_ITEM_TABLE = "sc_req_item"
-CATALOG_TABLE = "sc_cat_item"
 SCTASK_TABLE = "sc_task"
 
 
+def _as_dicts(payload: Any) -> list[dict[str, Any]]:
+    """Read a JSON array of objects, tolerating an empty or odd response."""
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
 class CatalogService:
-    """Service Catalog browsing and ordering."""
+    """Service Catalog browsing and ordering.
+
+    The Service Catalog API has its own root (``/api/sn_sc/...``), not the
+    ``/api/now/...`` the Table API lives under.
+    """
 
     def __init__(self, gateway: InstanceGateway, policy: WritePolicy) -> None:
         self._gateway = gateway
@@ -28,25 +38,19 @@ class CatalogService:
         *,
         category: str = "",
         text: str = "",
+        catalog: str = "",
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Browse catalog items, optionally filtered by category or text."""
-        self._policy.check_read(CATALOG_TABLE)
-        query = ""
-        if category:
-            query = f"category={category}"
-        if text:
-            text_clause = f"LIKE{text}"
-            query = f"{query}^{text_clause}" if query else text_clause
-        params: dict[str, str] = {"sysparm_limit": str(limit)}
-        if query:
-            params["sysparm_query"] = query
+        self._policy.check_read("sc_cat_item")
         response = self._gateway.request(
-            "GET", endpoints.table_path(CATALOG_TABLE), params=params
+            "GET",
+            endpoints.catalog_items_path(),
+            params=endpoints.catalog_items_params(
+                category=category, text=text, catalog=catalog, limit=limit
+            ),
         )
-        body = unwrap_records(response)
-        result = body.get("result")
-        return [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+        return _as_dicts(unwrap(response))
 
     def categories(self, *, limit: int = 100) -> list[dict[str, Any]]:
         """List catalog categories."""
@@ -62,17 +66,16 @@ class CatalogService:
         """The variables (form fields) of one catalog item."""
         self._policy.check_read("sc_cat_item")
         response = self._gateway.request(
-            "GET",
-            endpoints.table_path("sc_cat_item"),
-            params={
-                "sysparm_query": f"cat_item={item_sys_id}^ORparent_id={item_sys_id}",
-                "sysparm_limit": "200",
-            },
+            "GET", endpoints.catalog_item_path(item_sys_id), params={"sysparm_view": "desktop"}
         )
-        body = unwrap_records(response)
-        result = body.get("result")
-        variables = [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
-        return {"item": item_sys_id, "variables": variables}
+        payload = unwrap(response)
+        variables = payload.get("variables") if isinstance(payload, dict) else None
+        return {
+            "item": item_sys_id,
+            "variables": [item for item in variables if isinstance(item, dict)]
+            if isinstance(variables, list)
+            else [],
+        }
 
     def order(
         self,
@@ -90,7 +93,7 @@ class CatalogService:
         }
         body.update({str(key): str(value) for key, value in variables.items()})
         response = self._gateway.request(
-            "POST", f"{endpoints.API}/sn_sc/servicecatalog/items/{item_sys_id}/order", json_body=body
+            "POST", endpoints.catalog_order_path(item_sys_id), json_body=body
         )
         payload = unwrap(response)
         return payload if isinstance(payload, dict) else {"result": payload}
@@ -325,9 +328,15 @@ class OpsService:
 class AdminService:
     """Update sets, scripts, tests and the user directory."""
 
-    def __init__(self, gateway: InstanceGateway, policy: WritePolicy) -> None:
+    def __init__(
+        self,
+        gateway: InstanceGateway,
+        policy: WritePolicy,
+        scripted_rest_url: str = "",
+    ) -> None:
         self._gateway = gateway
         self._policy = policy
+        self._scripted_rest_url = scripted_rest_url
 
     def update_sets(self, *, limit: int = 50) -> list[dict[str, Any]]:
         """List the instance's update sets."""
@@ -354,11 +363,22 @@ class AdminService:
         return {"update_set": update_set, "result": result}
 
     def script(self, script: str, *, confirmed: bool = False) -> dict[str, Any]:
-        """Run a server-side script as a background job."""
+        """Run a server-side script through a Scripted REST API.
+
+        ServiceNow publishes **no** REST endpoint that executes arbitrary
+        server-side script, so there is nothing to call directly. The
+        documented route is a Scripted REST API you control on the instance;
+        point ``SN_SCRIPTED_REST_URL`` at one and this calls it.
+        """
         self._policy.check_write("sys_script", confirmed=confirmed)
+        if not self._scripted_rest_url:
+            raise ConfigurationError(
+                "running server-side script needs SN_SCRIPTED_REST_URL: the path of a "
+                "Scripted REST API on the instance that executes the script you send"
+            )
         response = self._gateway.request(
             "POST",
-            f"{endpoints.API}/script",
+            self._scripted_rest_url,
             json_body={"script": script, "run_as_user": "system"},
         )
         payload = unwrap(response)

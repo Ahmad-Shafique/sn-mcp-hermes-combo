@@ -26,6 +26,7 @@ class Settings:
     oauth_client_id: str = ""
     oauth_client_secret: str = ""
     oauth_token_url: str = ""
+    scripted_rest_url: str = ""
     timeout: int = 60
     max_bytes: int = 8 * 1024 * 1024
     store_path: str = DEFAULT_STORE_PATH
@@ -99,6 +100,7 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
         oauth_client_id=env.get("SN_OAUTH_CLIENT_ID", "").strip(),
         oauth_client_secret=env.get("SN_OAUTH_CLIENT_SECRET", ""),
         oauth_token_url=env.get("SN_OAUTH_TOKEN_URL", "").strip(),
+        scripted_rest_url=env.get("SN_SCRIPTED_REST_URL", "").strip(),
         timeout=_int(env.get("SN_TIMEOUT"), 60),
         max_bytes=_int(env.get("SN_MAX_BYTES"), 8 * 1024 * 1024),
         store_path=env.get("SN_STORE_PATH", DEFAULT_STORE_PATH).strip() or DEFAULT_STORE_PATH,
