@@ -154,6 +154,20 @@ mcp_servers:
 `trust: untrusted` makes Hermes ask for approval on any write-capable tool
 call. The server's own `confirm=true` requirement still applies on top.
 
+## Four test tiers
+
+Tier 1 - unit: domain rules in isolation, no I/O.
+Tier 2 - integration: real components against real collaborators.
+Tier 3 - QA: whole-system, from the composition root, plus architecture.
+Tier 4 - mutation: the tests must actually fail when the code is wrong.
+
+There is a **fifth kind of test** that pays for itself, even though it is
+not a tier of its own: the **contract test**. For each entry point that
+talks to the outside world, assert the exact request it makes - the path,
+the method, every query parameter, the body - not only what comes back.
+Result-level tests pass while the request quietly changes shape. Contract
+tests catch that, and they are what closes most mutation survivors.
+
 ## Architecture
 
 Clean Architecture, dependencies pointing strictly inward:
@@ -174,12 +188,22 @@ outward dependency, so the rule is enforced rather than merely described.
 make setup      # uv venv + pytest, pytest-cov, mutmut, hypothesis
 make test       # the suite
 make coverage   # 100% branch coverage, enforced
-make mutation   # mutation testing, zero survivors required
+make mutation   # mutation testing + the score gate
 make gate       # both
 ```
 
-The mutation gate is the one that matters. Coverage says a line ran; only
-mutation testing says a wrong answer would have been caught.
+The mutation gate reports a **score** and enforces a floor
+(`MIN_MUTATION_SCORE`, default 80). It is a ratchet: raise it as survivors
+are closed, never lower it.
+
+```bash
+.venv/bin/python scripts/mutation_gate.py --min-score 80 --json
+```
+
+Coverage says a line ran; only mutation testing says a wrong answer would
+have been caught. Most surviving mutants are *argument* mutants - a changed
+default, a removed keyword argument - which is why the contract tests
+(`tests/integration/test_*_contracts.py`) matter as much as the unit tests.
 
 > `mutmut` caches its verdicts in `mutants/`. After changing a test, run
 > `rm -rf mutants` or the next run replays stale results.
