@@ -39,16 +39,28 @@ class GraphService:
         )
         body = unwrap_records(response)
         result = body.get("result")
+        rows = [item for item in result if isinstance(item, dict)] if isinstance(result, list) else []
+
+        # A relation row carries a relationship *type* sys_id, and the
+        # type's label lives in ``cmdb_rel_type``. A CI commonly has many
+        # relations sharing a handful of types, so resolve each distinct
+        # type once instead of asking once per row - that is the
+        # difference between one request and two hundred.
+        labels: dict[str, str] = {}
+        for item in rows:
+            type_sys_id = str(item.get("type", ""))
+            if type_sys_id and type_sys_id not in labels:
+                labels[type_sys_id] = self._relation_type_label(type_sys_id)
+
         relations = []
-        for item in result if isinstance(result, list) else []:
-            if not isinstance(item, dict):
-                continue
+        for item in rows:
+            type_sys_id = str(item.get("type", ""))
             relations.append(
                 Relation(
                     parent_sys_id=str(item.get("parent", "")),
                     child_sys_id=str(item.get("child", "")),
-                    type_sys_id=str(item.get("type", "")),
-                    type_label=self._relation_type_label(str(item.get("type", ""))),
+                    type_sys_id=type_sys_id,
+                    type_label=labels.get(type_sys_id, ""),
                     parent_table=str(item.get("parent_type", "")),
                     child_table=str(item.get("child_type", "")),
                 )

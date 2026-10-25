@@ -123,6 +123,80 @@ class TestGraphProbeFailures:
         assert service._is_field("short_description") is True
 
 
+class TestRelationTypeResolution:
+    """Relationship type labels are resolved once per distinct type."""
+
+    def test_one_type_shared_by_many_relations_is_looked_up_once(self) -> None:
+        many = [
+            {"parent": "p1", "child": f"c{index}", "type": "type1"}
+            for index in range(50)
+        ]
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/cmdb_rel_ci": records(*many),
+                "/api/now/table/cmdb_rel_type": records({"name": "Contains"}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        relations = service.relations("p1")
+
+        lookups = [call for call in gateway.calls if call.path == "/api/now/table/cmdb_rel_type"]
+        assert len(lookups) == 1
+        assert lookups[0].params == {
+            "sysparm_query": "sys_id=type1",
+            "sysparm_limit": "1",
+        }
+        assert all(relation.type_label == "Contains" for relation in relations)
+
+    def test_two_distinct_types_are_looked_up_once_each(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/cmdb_rel_ci": records(
+                    {"parent": "p1", "child": "c1", "type": "type1"},
+                    {"parent": "p1", "child": "c2", "type": "type2"},
+                    {"parent": "p1", "child": "c3", "type": "type1"},
+                ),
+                "/api/now/table/cmdb_rel_type": records({"name": "Contains"}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        service.relations("p1")
+
+        lookups = [call for call in gateway.calls if call.path == "/api/now/table/cmdb_rel_type"]
+        assert len(lookups) == 2
+
+    def test_a_relation_with_no_type_is_not_looked_up(self) -> None:
+        gateway = FakeGateway(
+            responses={
+                "/api/now/table/cmdb_rel_ci": records({"parent": "p1", "child": "c1", "type": ""}),
+            }
+        )
+        service = GraphService(gateway, policy())
+
+        relations = service.relations("p1")
+
+        lookups = [call for call in gateway.calls if call.path == "/api/now/table/cmdb_rel_type"]
+        assert lookups == []
+        assert relations[0].type_label == ""
+
+    def test_resolving_an_empty_type_asks_the_instance_nothing(self) -> None:
+        gateway = FakeGateway()
+        service = GraphService(gateway, policy())
+
+        assert service._relation_type_label("") == ""
+        assert gateway.calls == []
+
+    def test_a_type_that_is_not_found_resolves_to_an_empty_label(self) -> None:
+        gateway = FakeGateway(
+            responses={"/api/now/table/cmdb_rel_type": ok({"result": []})}
+        )
+        service = GraphService(gateway, policy())
+
+        assert service._relation_type_label("type1") == ""
+
+
 class TestGraphKindContract:
     """Which impact lens fits, decided by asking the instance."""
 

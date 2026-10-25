@@ -13,7 +13,7 @@ request that comes out.
 from __future__ import annotations
 
 from snowmcp.application.graph import GraphService
-from snowmcp.application.records import AggregateService, SchemaService
+from snowmcp.application.records import AggregateService, RecordService, SchemaService
 from snowmcp.application.services import (
     AdminService,
     CatalogService,
@@ -21,6 +21,7 @@ from snowmcp.application.services import (
     OpsService,
 )
 from snowmcp.domain.policy import WritePolicy
+from snowmcp.domain.records import Query
 
 from tests.conftest import FakeGateway, ok, records
 
@@ -243,6 +244,48 @@ class TestGraphDefaults:
         }
 
 
+class TestRecordDefaults:
+    """The record service's default request."""
+
+    def test_a_query_with_no_options_asks_for_a_hundred_records(self) -> None:
+        gateway = FakeGateway(default=records({"sys_id": "x"}))
+        service = RecordService(gateway, policy())
+
+        service.query(Query(table="incident"))
+
+        call = gateway.last()
+        assert call.path == "/api/now/table/incident"
+        assert call.params == {"sysparm_limit": "100"}
+
+    def test_counting_asks_for_one_row_and_reads_the_total(self) -> None:
+        gateway = FakeGateway(default=records({"sys_id": "x"}))
+        service = RecordService(gateway, policy())
+
+        service.count("incident")
+
+        call = gateway.last()
+        assert call.path == "/api/now/table/incident"
+        assert call.params == {"sysparm_query": "", "sysparm_limit": "1"}
+
+    def test_counting_with_a_filter_sends_it(self) -> None:
+        gateway = FakeGateway(default=records({"sys_id": "x"}))
+        service = RecordService(gateway, policy())
+
+        service.count("incident", "state=2")
+
+        assert gateway.last().params == {"sysparm_query": "state=2", "sysparm_limit": "1"}
+
+    def test_reading_one_record_asks_for_it_by_sys_id(self) -> None:
+        gateway = FakeGateway(default=ok({"result": {"sys_id": "s1"}}))
+        service = RecordService(gateway, policy())
+
+        service.get("incident", "s1")
+
+        call = gateway.last()
+        assert call.path == "/api/now/table/incident/s1"
+        assert call.params == {"sysparm_display_value": "true"}
+
+
 class TestAggregateDefaults:
     """The aggregate service's default request."""
 
@@ -255,6 +298,14 @@ class TestAggregateDefaults:
         call = gateway.last()
         assert call.path == "/api/now/stats/incident"
         assert call.params == {"sysparm_aggregate": "COUNT"}
+
+    def test_a_second_group_by_is_sent_when_it_is_given(self) -> None:
+        gateway = FakeGateway(default=records({"aggregate": 1}))
+        service = AggregateService(gateway, policy())
+
+        service.stats("incident", "COUNT", group_by_2="category")
+
+        assert gateway.last().params["sysparm_group_by_2"] == "category"
 
 
 class TestCsdmHonesty:
