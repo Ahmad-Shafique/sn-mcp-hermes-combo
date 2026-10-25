@@ -53,27 +53,55 @@ def total_mutants() -> int:
     return total
 
 
-def recorded_results() -> tuple[int, int, int, Counter]:
+def tree_mutant_names() -> set[str]:
+    """The mangled names of the mutants in the generated tree.
+
+    A mutant is named ``xǁClassǁmethod__mutmut_3`` in the tree, and
+    mutmut records it under the full dotted path in the ``.meta`` file.
+    Comparing the two tells us whether the recorded results belong to
+    *this* source or to a different version of it.
+    """
+    names: set[str] = set()
+    for path in MUTANTS.rglob("*.py"):
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        for match in re.finditer(r"^\s*def (x.+?__mutmut_\d+)\(", text, re.M):
+            names.add(match.group(1))
+    return names
+
+
+def recorded_results() -> tuple[int, int, int, Counter, int]:
     """Tally the recorded results.
 
-    Returns ``(tested, killed, timed_out, other)``. mutmut records each
-    mutant's pytest exit code in the ``.meta`` file beside the mutated
-    module: ``None`` means it has not been run yet, ``0`` means the tests
-    still passed (the mutant SURVIVED), ``1`` means the tests failed (the
-    mutant was KILLED), and the timeout codes mean the worker was killed
-    for overrunning.
+    Returns ``(tested, killed, timed_out, other, orphans)``. mutmut records
+    each mutant's pytest exit code in the ``.meta`` file beside the
+    mutated module: ``None`` means it has not been run yet, ``0`` means the
+    tests still passed (the mutant SURVIVED), ``1`` means the tests failed
+    (the mutant was KILLED), and the timeout codes mean the worker was
+    killed for overrunning.
+
+    ``orphans`` counts results recorded for mutants that are not in the
+    tree - which means the results are from a different version of the
+    source, and cannot be scored against this one.
     """
+    known = tree_mutant_names()
     tested = 0
     killed = 0
     timed_out = 0
+    orphans = 0
     other: Counter = Counter()
     for meta in MUTANTS.rglob("*.meta"):
         try:
             data = json.loads(meta.read_text())
         except (OSError, ValueError):
             continue
-        for code in (data.get("exit_code_by_key") or {}).values():
+        for key, code in (data.get("exit_code_by_key") or {}).items():
             if code is None:
+                continue
+            if known and key.split(".")[-1] not in known:
+                orphans += 1
                 continue
             tested += 1
             if code == 0:
@@ -84,7 +112,7 @@ def recorded_results() -> tuple[int, int, int, Counter]:
                 timed_out += 1
             else:
                 other[code] += 1
-    return tested, killed, timed_out, other
+    return tested, killed, timed_out, other, orphans
 
 
 def survivors() -> list[str]:
@@ -102,6 +130,43 @@ def survivors() -> list[str]:
     ]
 
 
+def stale_results() -> list[tuple[str, list[str]]]:
+    """Recorded results that belong to a different version of the source.
+
+    mutmut records a hash of every function it mutated. If the source has
+    changed since the run, the hashes no longer match and the verdicts
+    describe mutations of code that is no longer there. Two runs sharing
+    the ``mutants/`` directory can produce exactly that, and the mutant
+    *names* are the same in both, so only the hashes reveal it.
+    """
+    try:
+        from mutmut.mutation.file_mutation import compute_function_hashes
+    except ImportError:  # pragma: no cover - mutmut is always present here
+        return []
+
+    stale: list[tuple[str, list[str]]] = []
+    for meta_path in sorted(MUTANTS.rglob("*.meta")):
+        relative = meta_path.relative_to(MUTANTS)
+        source_path = ROOT / "src" / relative.with_suffix("")
+        if not source_path.exists():
+            continue
+        try:
+            data = json.loads(meta_path.read_text())
+        except (OSError, ValueError):
+            continue
+        recorded = data.get("hash_by_function_name") or {}
+        if not recorded:
+            continue
+        try:
+            current = compute_function_hashes(source_path.read_text())
+        except SyntaxError:
+            continue
+        differing = [key for key, value in recorded.items() if current.get(key) != value]
+        if differing:
+            stale.append((str(relative), differing))
+    return stale
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--min-score", type=float, default=80.0, help="minimum score, 0-100")
@@ -113,7 +178,33 @@ def main() -> int:
         print("no mutants found - run `mutmut run` first", file=sys.stderr)
         return 2
 
-    tested, killed, timed_out, other = recorded_results()
+    tested, killed, timed_out, other, orphans = recorded_results()
+    stale = stale_results()
+    if stale:
+        detail = ", ".join(f"{name} ({len(keys)} functions)" for name, keys in stale[:5])
+        message = (
+            f"mutation results are STALE: {len(stale)} modules were mutated from a "
+            f"different version of the source ({detail}). The source has changed "
+            "since the run. Delete mutants/ and run again."
+        )
+        if args.json:
+            print(json.dumps({"complete": False, "total": total, "stale": [s[0] for s in stale]}))
+        else:
+            print(message)
+        print(message, file=sys.stderr)
+        return 2
+    if orphans:
+        message = (
+            f"mutation results do not match the source: {orphans} recorded results "
+            "are for mutants that are not in this tree. Two runs shared the "
+            "mutants/ directory. Delete mutants/ and run again."
+        )
+        if args.json:
+            print(json.dumps({"complete": False, "total": total, "orphans": orphans}))
+        else:
+            print(message)
+        print(message, file=sys.stderr)
+        return 2
     if tested < total:
         message = (
             f"mutation run is INCOMPLETE: {tested}/{total} mutants have a result. "
