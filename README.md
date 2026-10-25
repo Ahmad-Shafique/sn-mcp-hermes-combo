@@ -142,14 +142,22 @@ Copy `.env.example` to your environment and fill it in.
 ```yaml
 mcp_servers:
   servicenow:
-    command: "/home/agent/projects/snowmcp/.venv/bin/snowmcp"
+    command: "/home/agent/projects/snowmcp/.venv/bin/python"
+    args: ["-m", "snowmcp"]
     env:
+      PYTHONPATH: "/home/agent/projects/snowmcp/src"
       SN_INSTANCE_URL: "${env:SN_INSTANCE_URL}"
       SN_USERNAME: "${env:SN_USERNAME}"
       SN_PASSWORD: "${env:SN_PASSWORD}"
+      SN_STORE_PATH: "/home/agent/.hermes/data/snowmcp/store.sqlite3"
+    enabled: false
     trust: untrusted
     timeout: 120
 ```
+
+It is registered in this profile's config with `enabled: false`. Set the
+instance details in your profile's secret store, then flip `enabled` to
+`true` (or run `hermes mcp test servicenow` to check the connection).
 
 `trust: untrusted` makes Hermes ask for approval on any write-capable tool
 call. The server's own `confirm=true` requirement still applies on top.
