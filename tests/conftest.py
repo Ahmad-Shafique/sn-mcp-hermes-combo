@@ -6,16 +6,42 @@ so every layer can be exercised deterministically.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
+from hypothesis import HealthCheck, settings as hypothesis_settings
 
 from snowmcp.adapters.store.sqlite import SQLiteStore
 from snowmcp.application.ports import Response
 from snowmcp.domain.policy import WritePolicy
 from snowmcp.infrastructure.config import Settings
 from snowmcp.infrastructure.wiring import build_services
+
+
+def _under_mutation_testing() -> bool:
+    """True when pytest is running inside mutmut's copied tree."""
+    if os.environ.get("MUTMUT_UNDER_TEST"):
+        return True
+    return "mutants" in Path.cwd().parts
+
+
+if _under_mutation_testing():
+    # mutmut forks a fresh worker per mutant, so Hypothesis sees the same
+    # test run by several executors and trips `differing_executors`. The
+    # health check is protecting the example database, so the fix is to
+    # remove the database (`database=None`) rather than to mute the warning
+    # alone. The deadline is also disabled: a mutated function can be
+    # arbitrarily slow, and a timing failure would count as a false kill.
+    hypothesis_settings.register_profile(
+        "mutation_safe",
+        database=None,
+        deadline=None,
+        suppress_health_check=[HealthCheck.differing_executors],
+    )
+    hypothesis_settings.load_profile("mutation_safe")
 
 
 @dataclass
