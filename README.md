@@ -1,10 +1,10 @@
 # snowmcp — a consolidated ServiceNow MCP server
 
-One MCP server for a ServiceNow instance. **Eleven tools** instead of the
+One MCP server for a ServiceNow instance. **Thirteen tools** instead of the
 17–500 that other ServiceNow MCP servers expose, with a local store that
 remembers what it learns.
 
-## Why eleven tools
+## Why thirteen tools
 
 Every ServiceNow MCP server in the wild exposes one tool per operation:
 `sn_query`, `sn_get`, `sn_create`, `sn_update`, `sn_delete`, `sn_aggregate`,
@@ -141,6 +141,9 @@ Copy `.env.example` to your environment and fill it in.
 ```
 
 ## Use it from Hermes
+
+Full walkthrough - `hermes mcp add`, the trust model, the safety switches and
+troubleshooting: **[docs/HERMES_SETUP.md](docs/HERMES_SETUP.md)**.
 
 ```yaml
 mcp_servers:

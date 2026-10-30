@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "snowmcp"
 version = "1.0.0"
-description = "A consolidated ServiceNow MCP server: eleven tools, local storage, minimal calls."
+description = "A consolidated ServiceNow MCP server: thirteen tools, local storage, minimal calls."
 requires-python = ">=3.11"
 dependencies = ["mcp>=2.0"]
 
